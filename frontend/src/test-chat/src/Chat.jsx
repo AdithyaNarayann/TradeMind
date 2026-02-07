@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield } from 'lucide-react';
-import { createSession, sendChat, healthCheck } from './api';
+import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession } from './api';
 import './Chat.css';
 
 export default function Chat() {
@@ -22,6 +22,9 @@ export default function Chat() {
     const [error, setError] = useState(null);
     const [backendHealthy, setBackendHealthy] = useState(null);
     const [negotiationEnded, setNegotiationEnded] = useState(false);
+    const [dbSessionId, setDbSessionId] = useState(null);
+    const [lastBuyerOffer, setLastBuyerOffer] = useState(null);
+    const [lastSellerOffer, setLastSellerOffer] = useState(null);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -78,6 +81,29 @@ export default function Chat() {
                 setSessionId(sessionData.session_id);
                 setSessionInfo(sessionData);
                 setShowSetup(false);
+
+                // ── Persist to MySQL ──
+                const dbSess = await dbStartSession({
+                    product_name: 'Custom Product',
+                    mode: config.mode,
+                    base_price: config.basePrice,
+                    cost_price: config.costPrice,
+                    min_price: config.costPrice,
+                    max_rounds: config.maxRounds,
+                });
+                if (dbSess?.id) {
+                    setDbSessionId(dbSess.id);
+                    // Save the initial bot greeting as round 0
+                    await dbSaveMessage(dbSess.id, {
+                        round_number: 0,
+                        user_message: null,
+                        bot_reply: sessionData.message,
+                        offered_price: null,
+                        counter_price: sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : null,
+                        decision: 'chat',
+                    });
+                    setLastSellerOffer(sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : config.basePrice);
+                }
                 setMessages([{
                     id: Date.now(),
                     text: sessionData.message,
@@ -105,6 +131,9 @@ export default function Chat() {
         setSessionInfo(null);
         setMessages([]);
         setNegotiationEnded(false);
+        setDbSessionId(null);
+        setLastBuyerOffer(null);
+        setLastSellerOffer(null);
         setError(null);
         setInputValue('');
     }
@@ -172,8 +201,40 @@ export default function Chat() {
                 };
                 setMessages(prev => [...prev, botMessage]);
 
+                // ── Persist round to MySQL ──
+                const roundDecision = response.pricing?.decision || (response.has_price_offer ? 'counter' : 'chat');
+                const offeredPrice = response.extracted_price ? parseFloat(response.extracted_price) : null;
+                const counterPrice = response.pricing?.counter_offer_price ? parseFloat(response.pricing.counter_offer_price) : null;
+                const acceptedPrice = response.pricing?.accepted_price ? parseFloat(response.pricing.accepted_price) : null;
+
+                if (offeredPrice) setLastBuyerOffer(offeredPrice);
+                if (counterPrice) setLastSellerOffer(counterPrice);
+                if (acceptedPrice) setLastSellerOffer(acceptedPrice);
+
+                await dbSaveMessage(dbSessionId, {
+                    round_number: response.round_number || 0,
+                    user_message: userText,
+                    bot_reply: botText,
+                    offered_price: offeredPrice,
+                    counter_price: counterPrice || acceptedPrice,
+                    decision: roundDecision,
+                });
+
                 if (response.can_continue === false) {
                     setNegotiationEnded(true);
+
+                    // ── Close session in MySQL ──
+                    const finalStatus = response.status || roundDecision;
+                    const dealWasMade = roundDecision === 'accept';
+                    await dbCloseSession(dbSessionId, {
+                        status: finalStatus,
+                        final_price: dealWasMade ? (acceptedPrice || offeredPrice) : null,
+                        final_decision: finalStatus,
+                        deal_closed: dealWasMade,
+                        buyer_last_offer: offeredPrice || lastBuyerOffer,
+                        seller_last_offer: counterPrice || acceptedPrice || lastSellerOffer,
+                        rounds_used: response.round_number || 0,
+                    });
                 }
             } else {
                 setError('Empty response from server');

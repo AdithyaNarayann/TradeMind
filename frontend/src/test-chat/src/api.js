@@ -1,4 +1,80 @@
 const API_BASE = 'http://127.0.0.1:8000/api/v1/negotiate';
+const CHAT_DB_BASE = 'http://127.0.0.1:8000/api/v1/chat-sessions';
+
+function _token() {
+    return localStorage.getItem('trademind_token');
+}
+
+function _authHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    const t = _token();
+    if (t) h['Authorization'] = `Bearer ${t}`;
+    return h;
+}
+
+// ── Chat DB persistence helpers ──────────────────────────────────
+
+/** Create a chat session in MySQL (returns { id, status }) */
+export async function dbStartSession({ product_name, mode, base_price, cost_price, min_price, max_rounds }) {
+    if (!_token()) return null;
+    try {
+        const res = await fetch(CHAT_DB_BASE, {
+            method: 'POST',
+            headers: _authHeaders(),
+            body: JSON.stringify({ product_name, mode, base_price, cost_price, min_price, max_rounds }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
+/** Save a chat round to MySQL */
+export async function dbSaveMessage(dbSessionId, { round_number, user_message, bot_reply, offered_price, counter_price, decision }) {
+    if (!_token() || !dbSessionId) return null;
+    try {
+        const res = await fetch(`${CHAT_DB_BASE}/${dbSessionId}/messages`, {
+            method: 'POST',
+            headers: _authHeaders(),
+            body: JSON.stringify({ round_number, user_message, bot_reply, offered_price, counter_price, decision }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
+/** Close a chat session in MySQL with final outcome */
+export async function dbCloseSession(dbSessionId, { status, final_price, final_decision, deal_closed, buyer_last_offer, seller_last_offer, rounds_used }) {
+    if (!_token() || !dbSessionId) return null;
+    try {
+        const res = await fetch(`${CHAT_DB_BASE}/${dbSessionId}/close`, {
+            method: 'PUT',
+            headers: _authHeaders(),
+            body: JSON.stringify({ status, final_price, final_decision, deal_closed, buyer_last_offer, seller_last_offer, rounds_used }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
+/** Get all chat sessions for current user */
+export async function dbGetSessions() {
+    if (!_token()) return [];
+    try {
+        const res = await fetch(CHAT_DB_BASE, { headers: _authHeaders() });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch { return []; }
+}
+
+/** Get a single session with messages */
+export async function dbGetSession(dbSessionId) {
+    if (!_token() || !dbSessionId) return null;
+    try {
+        const res = await fetch(`${CHAT_DB_BASE}/${dbSessionId}`, { headers: _authHeaders() });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
 
 // Default product config for demo/testing
 const DEFAULT_SESSION_CONFIG = {

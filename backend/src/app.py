@@ -25,6 +25,7 @@ from .api import (
 from .analytics import analytics_router
 from .api.auth_routes import router as auth_router
 from .api.product_routes import router as product_router
+from .api.chat_session_routes import router as chat_session_router
 from .db.mysql import close_pool as close_mysql_pool
 
 # Import competitive intelligence router from buisness anlytics module
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(auth_router)
     app.include_router(product_router)
+    app.include_router(chat_session_router)
     app.include_router(analytics_router)
     app.include_router(competitive_router)
     
