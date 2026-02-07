@@ -65,7 +65,7 @@ const en = {
         buyAccess: 'Buy Access',
         viewApiDocs: 'View API Docs',
         startReporting: 'Buy Access',
-        whatsApp: 'View API Docs',
+        whatsApp: 'Try Our Chat',
         secureReport: 'TRADE MIND',
 
         // Stats

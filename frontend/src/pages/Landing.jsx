@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, DollarSign, BarChart3, MessageSquare, Cpu, Zap, Target, ArrowRight, LineChart, Settings } from 'lucide-react';
+import { TrendingUp, DollarSign, BarChart3, MessageSquare, Cpu, Zap, Target, ArrowRight, Settings } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
@@ -107,9 +107,9 @@ export default function Landing() {
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </NeoButton>
                 </Link>
-                <Link to="/authority">
+                <Link to="/chat">
                   <NeoButton variant="navy" size="lg">
-                    <LineChart className="w-5 h-5 mr-2" />
+                    <MessageSquare className="w-5 h-5 mr-2" />
                     {t('landing.whatsApp')}
                   </NeoButton>
                 </Link>
