@@ -12,6 +12,7 @@ import WalletDashboard from './pages/WalletDashboard';
 import Authority from './pages/Authority';
 import JuryDashboard from './pages/JuryDashboard';
 import ReputationPage from './pages/ReputationPage';
+import Chat from './test-chat/src/Chat';
 
 function App() {
   return (
@@ -45,6 +46,9 @@ function App() {
 
             {/* Reputation */}
             <Route path="/reputation" element={<ReputationPage />} />
+
+            {/* Chat / Negotiation Demo */}
+            <Route path="/chat" element={<Chat />} />
           </Routes>
         </SessionProvider>
       </BrowserRouter>
