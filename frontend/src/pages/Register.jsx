@@ -1,41 +1,56 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { TrendingUp, LogIn, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { TrendingUp, UserPlus, User, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import NeoButton from '../components/NeoButton';
-import { loginUser, saveAuthToken, saveAuthUser } from '../lib/api';
+import { registerUser, saveAuthToken, saveAuthUser } from '../lib/api';
 
-export default function Login() {
+export default function Register() {
     const navigate = useNavigate();
+    const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const passwordChecks = {
+        length: password.length >= 6,
+        match: password && confirmPassword && password === confirmPassword,
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
 
-        if (!email || !password) {
+        if (!fullName.trim() || !email || !password || !confirmPassword) {
             setError('Please fill in all fields');
+            return;
+        }
+        if (!passwordChecks.length) {
+            setError('Password must be at least 6 characters');
+            return;
+        }
+        if (!passwordChecks.match) {
+            setError('Passwords do not match');
             return;
         }
 
         setLoading(true);
         try {
-            const data = await loginUser(email, password);
+            const data = await registerUser(fullName.trim(), email, password);
             saveAuthToken(data.token);
             saveAuthUser(data.user);
             navigate('/');
         } catch (err) {
-            setError(err.message || 'Login failed. Please try again.');
+            setError(err.message || 'Registration failed. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-neo-cream flex flex-col items-center justify-center relative overflow-hidden px-4">
+        <div className="min-h-screen bg-neo-cream flex flex-col items-center justify-center relative overflow-hidden px-4 py-8">
             {/* Background decorations */}
             <div className="absolute inset-0 opacity-20 pointer-events-none">
                 <div className="absolute top-20 left-10 w-32 h-32 border-[4px] border-neo-navy rotate-12"></div>
@@ -59,13 +74,13 @@ export default function Login() {
                 </h1>
             </div>
 
-            {/* Login Card */}
+            {/* Register Card */}
             <div className="relative z-10 w-full max-w-md neo-card p-8">
                 <div className="flex items-center gap-3 mb-6">
-                    <div className="w-10 h-10 bg-neo-teal border-[3px] border-neo-navy flex items-center justify-center">
-                        <LogIn className="w-5 h-5 text-neo-cream" />
+                    <div className="w-10 h-10 bg-neo-orange border-[3px] border-neo-navy flex items-center justify-center">
+                        <UserPlus className="w-5 h-5 text-neo-navy" />
                     </div>
-                    <h2 className="text-2xl font-heading font-bold text-neo-navy">SIGN IN</h2>
+                    <h2 className="text-2xl font-heading font-bold text-neo-navy">CREATE ACCOUNT</h2>
                 </div>
 
                 {/* Error message */}
@@ -77,6 +92,26 @@ export default function Login() {
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-5">
+                    {/* Full Name */}
+                    <div>
+                        <label className="block text-xs font-heading font-bold text-neo-navy/60 uppercase tracking-widest mb-2">
+                            Full Name
+                        </label>
+                        <div className="flex items-center border-[3px] border-neo-navy overflow-hidden">
+                            <span className="px-3 py-3 bg-neo-navy text-neo-cream">
+                                <User className="w-5 h-5" />
+                            </span>
+                            <input
+                                type="text"
+                                value={fullName}
+                                onChange={(e) => setFullName(e.target.value)}
+                                placeholder="Enter your full name"
+                                className="flex-1 px-4 py-3 bg-neo-cream text-neo-navy font-body placeholder:text-neo-navy/40 focus:outline-none focus:bg-white transition-colors"
+                                disabled={loading}
+                            />
+                        </div>
+                    </div>
+
                     {/* Email */}
                     <div>
                         <label className="block text-xs font-heading font-bold text-neo-navy/60 uppercase tracking-widest mb-2">
@@ -110,7 +145,7 @@ export default function Login() {
                                 type={showPassword ? 'text' : 'password'}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Enter your password"
+                                placeholder="Min 6 characters"
                                 className="flex-1 px-4 py-3 bg-neo-cream text-neo-navy font-body placeholder:text-neo-navy/40 focus:outline-none focus:bg-white transition-colors"
                                 disabled={loading}
                             />
@@ -124,27 +159,67 @@ export default function Login() {
                         </div>
                     </div>
 
+                    {/* Confirm Password */}
+                    <div>
+                        <label className="block text-xs font-heading font-bold text-neo-navy/60 uppercase tracking-widest mb-2">
+                            Confirm Password
+                        </label>
+                        <div className="flex items-center border-[3px] border-neo-navy overflow-hidden">
+                            <span className="px-3 py-3 bg-neo-navy text-neo-cream">
+                                <Lock className="w-5 h-5" />
+                            </span>
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Re-enter password"
+                                className="flex-1 px-4 py-3 bg-neo-cream text-neo-navy font-body placeholder:text-neo-navy/40 focus:outline-none focus:bg-white transition-colors"
+                                disabled={loading}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Password strength indicators */}
+                    {password && (
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-xs font-body">
+                                <CheckCircle className={`w-3 h-3 ${passwordChecks.length ? 'text-neo-teal' : 'text-neo-navy/30'}`} />
+                                <span className={passwordChecks.length ? 'text-neo-teal font-bold' : 'text-neo-navy/40'}>
+                                    At least 6 characters
+                                </span>
+                            </div>
+                            {confirmPassword && (
+                                <div className="flex items-center gap-2 text-xs font-body">
+                                    <CheckCircle className={`w-3 h-3 ${passwordChecks.match ? 'text-neo-teal' : 'text-neo-maroon'}`} />
+                                    <span className={passwordChecks.match ? 'text-neo-teal font-bold' : 'text-neo-maroon'}>
+                                        Passwords match
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Submit Button */}
                     <NeoButton
                         type="submit"
-                        variant="orange"
+                        variant="teal"
                         size="lg"
                         className="w-full mt-2"
                         disabled={loading}
                     >
                         <span className="flex items-center justify-center gap-2">
-                            {loading ? 'Signing in...' : 'Sign In'}
+                            {loading ? 'Creating account...' : 'Create Account'}
                             {!loading && <ArrowRight className="w-5 h-5" />}
                         </span>
                     </NeoButton>
                 </form>
 
-                {/* Register link */}
+                {/* Login link */}
                 <div className="mt-6 text-center">
                     <p className="text-sm text-neo-navy/60 font-body">
-                        Don't have an account?{' '}
-                        <Link to="/register" className="font-bold text-neo-teal hover:text-neo-orange transition-colors underline underline-offset-2">
-                            Create one
+                        Already have an account?{' '}
+                        <Link to="/login" className="font-bold text-neo-teal hover:text-neo-orange transition-colors underline underline-offset-2">
+                            Sign in
                         </Link>
                     </p>
                 </div>

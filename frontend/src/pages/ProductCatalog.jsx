@@ -30,8 +30,8 @@ export default function ProductCatalog() {
 
     useEffect(() => { reload(); }, []);
 
-    function reload() {
-        setProducts(getProducts());
+    async function reload() {
+        setProducts(await getProducts());
     }
 
     // ── Form helpers ───────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export default function ProductCatalog() {
         setShowForm(true);
     }
 
-    function handleSubmit(e) {
+    async function handleSubmit(e) {
         e.preventDefault();
         const base = parseFloat(form.basePrice);
         const cost = parseFloat(form.costPrice);
@@ -70,27 +70,37 @@ export default function ProductCatalog() {
         if (isNaN(cost) || cost <= 0) { setFormError('Invalid cost price'); return; }
         if (cost >= base) { setFormError('Cost price must be less than base price'); return; }
 
-        if (editingProduct) {
-            updateProduct(editingProduct.id, {
-                name: form.name.trim(), basePrice: base, costPrice: cost,
-                minAcceptablePrice: min, maxLossPercent: Number(form.maxLossPercent),
-                mode: form.mode, maxRounds: Number(form.maxRounds), category: form.category,
-            });
-        } else {
-            createProduct({
-                name: form.name.trim(), basePrice: base, costPrice: cost,
-                minAcceptablePrice: min, maxLossPercent: Number(form.maxLossPercent),
-                mode: form.mode, maxRounds: Number(form.maxRounds), category: form.category,
-            });
+        try {
+            if (editingProduct) {
+                await updateProduct(editingProduct.id, {
+                    name: form.name.trim(), basePrice: base, costPrice: cost,
+                    minAcceptablePrice: min, maxLossPercent: Number(form.maxLossPercent),
+                    mode: form.mode, maxRounds: Number(form.maxRounds), category: form.category,
+                });
+            } else {
+                await createProduct({
+                    name: form.name.trim(), basePrice: base, costPrice: cost,
+                    minAcceptablePrice: min, maxLossPercent: Number(form.maxLossPercent),
+                    mode: form.mode, maxRounds: Number(form.maxRounds), category: form.category,
+                });
+            }
+            setShowForm(false);
+            reload();
+        } catch (err) {
+            setFormError(err.message || 'Failed to save product');
         }
-        setShowForm(false);
-        reload();
     }
 
-    function handleDelete(id) {
-        deleteProduct(id);
-        setDeleteConfirm(null);
-        reload();
+    async function handleDelete(id) {
+        try {
+            await deleteProduct(id);
+            setDeleteConfirm(null);
+            reload();
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setDeleteConfirm(null);
+            reload();
+        }
     }
 
     // ── CSV Import ─────────────────────────────────────────────────────────
@@ -99,8 +109,8 @@ export default function ProductCatalog() {
         const file = e.target.files?.[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = (ev) => {
-            const result = importFromCSV(ev.target.result);
+        reader.onload = async (ev) => {
+            const result = await importFromCSV(ev.target.result);
             setImportResult(result);
             reload();
             setTimeout(() => setImportResult(null), 6000);
@@ -114,7 +124,7 @@ export default function ProductCatalog() {
     const filteredProducts = products.filter(p =>
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchQuery.toLowerCase())
+        String(p.id).toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     // ── Render ─────────────────────────────────────────────────────────────

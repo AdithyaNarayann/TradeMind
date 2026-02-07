@@ -4,6 +4,7 @@ import { I18nProvider } from './context/I18nContext';
 import LanguageModal from './components/LanguageModal';
 import TranslationLoadingOverlay from './components/TranslationLoadingOverlay';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Landing from './pages/Landing';
 import ReporterHome from './pages/ReporterHome';
 import Report from './pages/Report';
@@ -14,17 +15,21 @@ import JuryDashboard from './pages/JuryDashboard';
 import ReputationPage from './pages/ReputationPage';
 import ProductCatalog from './pages/ProductCatalog';
 import Chat from './test-chat/src/Chat';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
     <I18nProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <SessionProvider>
           <LanguageModal />
           <TranslationLoadingOverlay />
           <Routes>
             {/* Login - Entry Point */}
             <Route path="/login" element={<Login />} />
+
+            {/* Register */}
+            <Route path="/register" element={<Register />} />
 
             {/* Landing */}
             <Route path="/" element={<Landing />} />
@@ -48,8 +53,8 @@ function App() {
             {/* Reputation */}
             <Route path="/reputation" element={<ReputationPage />} />
 
-            {/* Products */}
-            <Route path="/products" element={<ProductCatalog />} />
+            {/* Products (requires login) */}
+            <Route path="/products" element={<ProtectedRoute><ProductCatalog /></ProtectedRoute>} />
 
             {/* Chat / Negotiation Demo */}
             <Route path="/chat" element={<Chat />} />

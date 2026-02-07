@@ -1,4 +1,75 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8000';
+
+// ============================================================
+// Auth API
+// ============================================================
+
+export async function registerUser(fullName, email, password) {
+  const response = await fetch(`${AUTH_API_URL}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: fullName, email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || 'Registration failed');
+  }
+  return data;
+}
+
+export async function loginUser(email, password) {
+  const response = await fetch(`${AUTH_API_URL}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || 'Login failed');
+  }
+  return data;
+}
+
+export async function getMe(token) {
+  const response = await fetch(`${AUTH_API_URL}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || 'Unauthorized');
+  }
+  return data;
+}
+
+// Auth token helpers
+export function saveAuthToken(token) {
+  localStorage.setItem('trademind_token', token);
+}
+
+export function getAuthToken() {
+  return localStorage.getItem('trademind_token');
+}
+
+export function saveAuthUser(user) {
+  localStorage.setItem('trademind_user', JSON.stringify(user));
+}
+
+export function getAuthUser() {
+  try {
+    const u = localStorage.getItem('trademind_user');
+    return u ? JSON.parse(u) : null;
+  } catch { return null; }
+}
+
+export function logout() {
+  localStorage.removeItem('trademind_token');
+  localStorage.removeItem('trademind_user');
+}
+
+export function isAuthenticated() {
+  return !!getAuthToken();
+}
 
 export async function checkSession(sessionId) {
   const response = await fetch(`${API_URL}/api/session/${sessionId}`);

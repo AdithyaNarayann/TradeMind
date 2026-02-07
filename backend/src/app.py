@@ -23,6 +23,9 @@ from .api import (
     value_error_handler,
 )
 from .analytics import analytics_router
+from .api.auth_routes import router as auth_router
+from .api.product_routes import router as product_router
+from .db.mysql import close_pool as close_mysql_pool
 
 # Import competitive intelligence router from buisness anlytics module
 import sys, os
@@ -45,6 +48,7 @@ async def lifespan(app: FastAPI):
         debug=settings.debug,
     )
     yield
+    await close_mysql_pool()
     logger.info("shutting_down_application")
 
 
@@ -120,6 +124,8 @@ def create_app() -> FastAPI:
     # ==========================================================================
     
     app.include_router(router)
+    app.include_router(auth_router)
+    app.include_router(product_router)
     app.include_router(analytics_router)
     app.include_router(competitive_router)
     
