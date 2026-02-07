@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
@@ -72,6 +72,7 @@ export default function Authority() {
   const [activeTab, setActiveTab] = useState('metrics');
   const [filter, setFilter] = useState('all');
   const [backendHealthy, setBackendHealthy] = useState(null);
+  const resultsRef = useRef(null);
 
   // ─── Stats derived from analytics response ───────────────────
   const stats = analyticsData
@@ -150,6 +151,7 @@ export default function Authority() {
       const result = await calculateAnalytics(payload);
       setAnalyticsData(result);
       setActiveTab('metrics');
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (err) {
       console.error('Analytics failed:', err);
       setError(err.message || 'Failed to calculate analytics');
@@ -173,6 +175,7 @@ export default function Authority() {
       });
       setCompetitiveData(result);
       setActiveTab('charts');
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (err) {
       console.error('Competitive analysis failed:', err);
       setError(err.message || 'Competitive analysis failed');
@@ -285,229 +288,227 @@ export default function Authority() {
             </NeoCard>
           </div>
 
-          {/* ───── Main Content Grid ─────────────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
+          {/* ───── Input Cards — 3 across ────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
 
-            {/* ───── LEFT COLUMN: Input Form ─────────────────────── */}
-            <div className="lg:col-span-4 xl:col-span-3 space-y-3 sm:space-y-4">
-
-              {/* Product Info */}
-              <NeoCard className="p-2 sm:p-4">
-                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Search className="w-4 h-4 text-neo-orange" />
-                  Product Info
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <InputField
-                    label="Product Name"
-                    value={product.product_name}
-                    onChange={v => handleProductChange('product_name', v)}
-                    icon={Package}
-                    placeholder="e.g. Boat Airdopes 141"
-                    type="text"
-                  />
-                  <div className="space-y-1">
-                    <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
-                      <FileText className="w-3 h-3" />
-                      Product Description
-                    </label>
-                    <textarea
-                      value={product.product_description}
-                      onChange={e => handleProductChange('product_description', e.target.value)}
-                      placeholder="Describe key features, specs, USPs..."
-                      rows={3}
-                      className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors resize-none"
-                    />
-                  </div>
-                </div>
-              </NeoCard>
-
-              {/* Product Parameters */}
-              <NeoCard className="p-2 sm:p-4">
-                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Package className="w-4 h-4 text-neo-orange" />
-                  Product Parameters
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <InputField
-                    label="Cost Price"
-                    value={product.cost_price}
-                    onChange={v => handleProductChange('cost_price', v)}
-                    icon={DollarSign}
-                    placeholder="500"
-                  />
-                  <InputField
-                    label="Selling Price"
-                    value={product.selling_price}
-                    onChange={v => handleProductChange('selling_price', v)}
-                    icon={DollarSign}
-                    placeholder="999"
-                  />
-                  <InputField
-                    label="Initial Stock"
-                    value={product.initial_stock}
-                    onChange={v => handleProductChange('initial_stock', v)}
-                    icon={Package}
-                    placeholder="100"
-                  />
-                  <InputField
-                    label="Platform Fee %"
-                    value={product.platform_fee_percent}
-                    onChange={v => handleProductChange('platform_fee_percent', v)}
-                    icon={Percent}
-                    placeholder="10"
-                  />
-                  <InputField
-                    label="Shipping / Unit"
-                    value={product.shipping_cost}
-                    onChange={v => handleProductChange('shipping_cost', v)}
-                    icon={ShoppingCart}
-                    placeholder="50"
-                  />
-                  <InputField
-                    label="Marketing Spend"
-                    value={product.marketing_cost}
-                    onChange={v => handleProductChange('marketing_cost', v)}
-                    icon={TrendingUp}
-                    placeholder="5000"
+            {/* Product Info */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Search className="w-4 h-4 text-neo-orange" />
+                Product Info
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Product Name"
+                  value={product.product_name}
+                  onChange={v => handleProductChange('product_name', v)}
+                  icon={Package}
+                  placeholder="e.g. Boat Airdopes 141"
+                  type="text"
+                />
+                <div className="space-y-1">
+                  <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+                    <FileText className="w-3 h-3" />
+                    Product Description
+                  </label>
+                  <textarea
+                    value={product.product_description}
+                    onChange={e => handleProductChange('product_description', e.target.value)}
+                    placeholder="Describe key features, specs, USPs..."
+                    rows={3}
+                    className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors resize-none"
                   />
                 </div>
-              </NeoCard>
+              </div>
+            </NeoCard>
 
-              {/* Performance Signals */}
-              <NeoCard className="p-2 sm:p-4">
-                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-neo-teal" />
-                  Performance Signals
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <InputField
-                    label="Chat Sessions"
-                    value={performance.chats}
-                    onChange={v => handlePerformanceChange('chats', v)}
-                    icon={Users}
-                    placeholder="150"
-                  />
-                  <InputField
-                    label="Orders"
-                    value={performance.orders}
-                    onChange={v => handlePerformanceChange('orders', v)}
-                    icon={ShoppingCart}
-                    placeholder="45"
-                  />
-                  <InputField
-                    label="Units Sold"
-                    value={performance.units_sold}
-                    onChange={v => handlePerformanceChange('units_sold', v)}
-                    icon={Package}
-                    placeholder="52"
-                  />
-                  <InputField
-                    label="Returns"
-                    value={performance.returns}
-                    onChange={v => handlePerformanceChange('returns', v)}
-                    icon={XCircle}
-                    placeholder="3"
-                  />
-                </div>
-              </NeoCard>
+            {/* Product Parameters */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-neo-orange" />
+                Product Parameters
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Cost Price"
+                  value={product.cost_price}
+                  onChange={v => handleProductChange('cost_price', v)}
+                  icon={DollarSign}
+                  placeholder="500"
+                />
+                <InputField
+                  label="Selling Price"
+                  value={product.selling_price}
+                  onChange={v => handleProductChange('selling_price', v)}
+                  icon={DollarSign}
+                  placeholder="999"
+                />
+                <InputField
+                  label="Initial Stock"
+                  value={product.initial_stock}
+                  onChange={v => handleProductChange('initial_stock', v)}
+                  icon={Package}
+                  placeholder="100"
+                />
+                <InputField
+                  label="Platform Fee %"
+                  value={product.platform_fee_percent}
+                  onChange={v => handleProductChange('platform_fee_percent', v)}
+                  icon={Percent}
+                  placeholder="10"
+                />
+                <InputField
+                  label="Shipping / Unit"
+                  value={product.shipping_cost}
+                  onChange={v => handleProductChange('shipping_cost', v)}
+                  icon={ShoppingCart}
+                  placeholder="50"
+                />
+                <InputField
+                  label="Marketing Spend"
+                  value={product.marketing_cost}
+                  onChange={v => handleProductChange('marketing_cost', v)}
+                  icon={TrendingUp}
+                  placeholder="5000"
+                />
+              </div>
+            </NeoCard>
 
-              {/* Calculate Button */}
-              <NeoButton
-                onClick={handleCalculate}
-                variant="teal"
-                className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
-                disabled={loading || !product.cost_price || !product.selling_price || !product.initial_stock || parseFloat(product.cost_price) <= 0 || parseFloat(product.selling_price) <= 0}
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
-                    Calculating...
-                  </>
-                ) : (
-                  <>
-                    <Calculator className="w-4 h-4 mr-2" />
-                    Calculate Analytics
-                  </>
-                )}
-              </NeoButton>
+            {/* Performance Signals */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-neo-teal" />
+                Performance Signals
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Chat Sessions"
+                  value={performance.chats}
+                  onChange={v => handlePerformanceChange('chats', v)}
+                  icon={Users}
+                  placeholder="150"
+                />
+                <InputField
+                  label="Orders"
+                  value={performance.orders}
+                  onChange={v => handlePerformanceChange('orders', v)}
+                  icon={ShoppingCart}
+                  placeholder="45"
+                />
+                <InputField
+                  label="Units Sold"
+                  value={performance.units_sold}
+                  onChange={v => handlePerformanceChange('units_sold', v)}
+                  icon={Package}
+                  placeholder="52"
+                />
+                <InputField
+                  label="Returns"
+                  value={performance.returns}
+                  onChange={v => handlePerformanceChange('returns', v)}
+                  icon={XCircle}
+                  placeholder="3"
+                />
+              </div>
+            </NeoCard>
+          </div>
 
-              {/* Competitive Analysis Button */}
-              {analyticsData && (
-                <NeoButton
-                  onClick={handleCompetitiveAnalysis}
-                  variant="orange"
-                  className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
-                  disabled={compLoading || !product.product_name}
-                >
-                  {compLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin mr-2" />
-                      Scraping & AI Analysis...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-4 h-4 mr-2" />
-                      {product.product_name ? 'Run AI Competitive Analysis' : 'Enter product name first'}
-                    </>
-                  )}
-                </NeoButton>
+          {/* ───── Action Buttons + Error ─────────────────────────── */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-4 sm:mb-6">
+            <NeoButton
+              onClick={handleCalculate}
+              variant="teal"
+              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
+              disabled={loading || !product.cost_price || !product.selling_price || !product.initial_stock || parseFloat(product.cost_price) <= 0 || parseFloat(product.selling_price) <= 0}
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
+                  Calculating...
+                </>
+              ) : (
+                <>
+                  <Calculator className="w-4 h-4 mr-2" />
+                  Calculate Analytics
+                </>
               )}
+            </NeoButton>
 
-              {/* Error Display */}
-              {error && (
-                <NeoCard variant="maroon" className="p-2 sm:p-3">
-                  <p className="text-neo-cream font-bold text-[10px] sm:text-xs flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    {error}
-                  </p>
-                </NeoCard>
+            <NeoButton
+              onClick={handleCompetitiveAnalysis}
+              variant="orange"
+              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
+              disabled={compLoading || !product.product_name || !product.selling_price}
+            >
+              {compLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin mr-2" />
+                  Scraping & AI Analysis...
+                </>
+              ) : (
+                <>
+                  <Brain className="w-4 h-4 mr-2" />
+                  Run AI Competitive Analysis
+                </>
               )}
+            </NeoButton>
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="mb-4 sm:mb-6">
+              <NeoCard variant="maroon" className="p-2 sm:p-3">
+                <p className="text-neo-cream font-bold text-[10px] sm:text-xs flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  {error}
+                </p>
+              </NeoCard>
             </div>
+          )}
 
-            {/* ───── RIGHT COLUMN: Results Panel ─────────────────── */}
-            <div className="lg:col-span-8 xl:col-span-9">
-              <NeoCard className="overflow-hidden">
-                {/* Tab Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-neo-navy/5 p-2 sm:p-4 border-b-[2px] sm:border-b-[3px] border-neo-navy">
-                  <div className="flex gap-1 mb-2 sm:mb-0">
-                    {['metrics', 'charts', 'insights'].map(tab => (
+          {/* ───── Results Panel (full width below) ──────────────── */}
+          <div ref={resultsRef}>
+            <NeoCard className="overflow-hidden">
+              {/* Tab Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-neo-navy/5 p-2 sm:p-4 border-b-[2px] sm:border-b-[3px] border-neo-navy">
+                <div className="flex gap-1 mb-2 sm:mb-0">
+                  {['metrics', 'charts', 'insights'].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-2 sm:px-4 py-1 sm:py-2 text-[10px] sm:text-xs font-bold uppercase border-[2px] transition-all ${
+                        activeTab === tab
+                          ? 'bg-neo-navy text-neo-cream border-neo-navy'
+                          : 'bg-neo-cream text-neo-navy border-neo-navy/30 hover:border-neo-navy'
+                      }`}
+                    >
+                      {tab === 'metrics' && <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab === 'charts' && <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab === 'insights' && <Zap className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Insight severity filter pills (only on insights tab) */}
+                {activeTab === 'insights' && analyticsData && (
+                  <div className="flex gap-1">
+                    {['all', 'success', 'warning', 'critical'].map(f => (
                       <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-2 sm:px-4 py-1 sm:py-2 text-[10px] sm:text-xs font-bold uppercase border-[2px] transition-all ${
-                          activeTab === tab
-                            ? 'bg-neo-navy text-neo-cream border-neo-navy'
-                            : 'bg-neo-cream text-neo-navy border-neo-navy/30 hover:border-neo-navy'
+                        key={f}
+                        onClick={() => setFilter(f)}
+                        className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold border-[2px] transition-all ${
+                          filter === f
+                            ? 'bg-neo-orange text-neo-navy border-neo-orange'
+                            : 'bg-neo-cream text-neo-navy/60 border-neo-navy/20 hover:border-neo-navy/40'
                         }`}
                       >
-                        {tab === 'metrics' && <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab === 'charts' && <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab === 'insights' && <Zap className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
                   </div>
-
-                  {/* Insight severity filter pills (only on insights tab) */}
-                  {activeTab === 'insights' && analyticsData && (
-                    <div className="flex gap-1">
-                      {['all', 'success', 'warning', 'critical'].map(f => (
-                        <button
-                          key={f}
-                          onClick={() => setFilter(f)}
-                          className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold border-[2px] transition-all ${
-                            filter === f
-                              ? 'bg-neo-orange text-neo-navy border-neo-orange'
-                              : 'bg-neo-cream text-neo-navy/60 border-neo-navy/20 hover:border-neo-navy/40'
-                          }`}
-                        >
-                          {f.charAt(0).toUpperCase() + f.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
+              </div>
 
                 {/* Tab Content */}
                 <div className="p-2 sm:p-4">
@@ -516,7 +517,7 @@ export default function Authority() {
                       <div className="text-center">
                         <BarChart3 className="w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-2 opacity-50" />
                         <p className="text-xs sm:text-sm">Enter your product data and hit Calculate</p>
-                        <p className="text-[10px] sm:text-xs text-neo-navy/30 mt-1">Fill in the form on the left to get started</p>
+                        <p className="text-[10px] sm:text-xs text-neo-navy/30 mt-1">Fill in the form above to get started</p>
                       </div>
                     </div>
                   ) : loading ? (
@@ -1172,7 +1173,6 @@ export default function Authority() {
                 </div>
               </NeoCard>
             </div>
-          </div>
         </div>
       </section>
     </Layout>
