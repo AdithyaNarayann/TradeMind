@@ -183,7 +183,8 @@ class ContextAnalysisAgent:
         
         # HARD GUARDRAILS — AI cannot violate these
         target_price = min(base, max(floor, target_price))
-        reservation_price = min(target_price, max(floor, reservation_price))
+        # reservation_price = min_acceptable_price (the real acceptance floor)
+        reservation_price = floor
         
         # Walk-away: allow below cost only if max_loss_percentage > 0
         if strategy.mode == NegotiationMode.MIN_LOSS and product.max_loss_percentage > 0:
@@ -274,10 +275,8 @@ class ContextAnalysisAgent:
         target_discount = margin * (Decimal("1.0") - aggressiveness) * Decimal("0.3")
         target_price = base - target_discount
         
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            reservation_price = floor + (target_price - floor) * Decimal("0.3")
-        else:
-            reservation_price = floor
+        # reservation_price = min_acceptable_price (the real acceptance floor)
+        reservation_price = floor
         
         if strategy.mode == NegotiationMode.MIN_LOSS and product.max_loss_percentage > 0:
             max_loss = cost * (product.max_loss_percentage / Decimal("100"))
