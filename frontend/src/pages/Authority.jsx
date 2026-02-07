@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
-  Clock, AlertTriangle, ExternalLink, Bot, FileText, Filter,
-  Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User,
-  IndianRupee, TrendingUp, TrendingDown, ShoppingCart, Package,
-  Percent, Activity, Zap, Info, ChevronRight, Calculator,
-  Sparkles, Target, Shield, Search, Lightbulb
+  BarChart3, RefreshCw, CheckCircle, XCircle,
+  AlertTriangle, FileText,
+  Brain, IndianRupee, TrendingUp, TrendingDown, ShoppingCart, Package,
+  Percent, Activity, Zap, Info, Calculator,
+  Sparkles, Target, Shield, Search, Lightbulb, PlusCircle, Tag, Settings
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
-import { calculateAnalytics, getCompetitiveAnalysis, getAnalyticsHealth } from '../lib/api';
+import { calculateAnalytics, getCompetitiveAnalysis, getAnalyticsHealth, getAuthToken } from '../lib/api';
+import { createProduct } from '../lib/productStore';
 import { useI18n } from '../context/I18nContext';
 
 // ─── Default form values ─────────────────────────────────────────
@@ -24,13 +24,11 @@ const DEFAULT_PRODUCT = {
   platform_fee_percent: '0',
   shipping_cost: '0',
   marketing_cost: '0',
-};
-
-const DEFAULT_PERFORMANCE = {
-  chats: '0',
-  orders: '0',
-  units_sold: '0',
-  returns: '0',
+  category: 'General',
+  mode: 'MAX_PROFIT',
+  max_rounds: '10',
+  min_acceptable_price: '',
+  max_loss_percent: '0',
 };
 
 // ─── Severity colors ────────────────────────────────────────────
@@ -63,7 +61,6 @@ export default function Authority() {
 
   // ─── State ───────────────────────────────────────────────────
   const [product, setProduct] = useState(DEFAULT_PRODUCT);
-  const [performance, setPerformance] = useState(DEFAULT_PERFORMANCE);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [competitiveData, setCompetitiveData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -72,6 +69,8 @@ export default function Authority() {
   const [activeTab, setActiveTab] = useState('metrics');
   const [filter, setFilter] = useState('all');
   const [backendHealthy, setBackendHealthy] = useState(null);
+  const [addingProduct, setAddingProduct] = useState(false);
+  const [addProductMsg, setAddProductMsg] = useState(null);
   const resultsRef = useRef(null);
 
   // ─── Stats derived from analytics response ───────────────────
@@ -96,10 +95,6 @@ export default function Authority() {
     setProduct(prev => ({ ...prev, [field]: value }));
   };
 
-  const handlePerformanceChange = (field, value) => {
-    setPerformance(prev => ({ ...prev, [field]: value }));
-  };
-
   const handleCalculate = async () => {
     const costPrice = parseFloat(product.cost_price);
     const sellingPrice = parseFloat(product.selling_price);
@@ -115,13 +110,6 @@ export default function Authority() {
     }
     if (isNaN(initialStock) || initialStock < 0) {
       setError('Initial stock must be 0 or greater');
-      return;
-    }
-
-    const unitsSold = parseInt(performance.units_sold) || 0;
-    const returns = parseInt(performance.returns) || 0;
-    if (returns > unitsSold) {
-      setError('Returns cannot exceed units sold');
       return;
     }
 
@@ -141,10 +129,10 @@ export default function Authority() {
           marketing_cost: parseFloat(product.marketing_cost) || 0,
         },
         performance: {
-          chats: parseInt(performance.chats) || 0,
-          orders: parseInt(performance.orders) || 0,
-          units_sold: unitsSold,
-          returns: returns,
+          chats: 0,
+          orders: 0,
+          units_sold: 0,
+          returns: 0,
         },
       };
 
@@ -170,7 +158,7 @@ export default function Authority() {
       const result = await getCompetitiveAnalysis({
         product_name: product.product_name.trim(),
         product_description: product.product_description.trim() || null,
-        category: 'General',
+        category: product.category || 'General',
         my_price: parseFloat(product.selling_price) || 0,
       });
       setCompetitiveData(result);
@@ -185,12 +173,48 @@ export default function Authority() {
 
   const handleReset = () => {
     setProduct(DEFAULT_PRODUCT);
-    setPerformance(DEFAULT_PERFORMANCE);
     setAnalyticsData(null);
     setCompetitiveData(null);
     setError(null);
     setActiveTab('metrics');
     setFilter('all');
+    setAddProductMsg(null);
+  };
+
+  // ─── Add to Products ──────────────────────────────────────────
+  const handleAddToProducts = async () => {
+    if (!getAuthToken()) {
+      setError('Please log in first to add products');
+      return;
+    }
+    const name = product.product_name?.trim();
+    const basePrice = parseFloat(product.selling_price);
+    const costPrice = parseFloat(product.cost_price);
+    if (!name) { setError('Product name is required'); return; }
+    if (!basePrice || basePrice <= 0) { setError('Selling price is required'); return; }
+    if (!costPrice || costPrice <= 0) { setError('Cost price is required'); return; }
+    if (costPrice >= basePrice) { setError('Cost price must be less than selling price'); return; }
+
+    setAddingProduct(true);
+    setError(null);
+    setAddProductMsg(null);
+    try {
+      await createProduct({
+        name,
+        basePrice,
+        costPrice,
+        minAcceptablePrice: parseFloat(product.min_acceptable_price) || costPrice,
+        maxLossPercent: parseFloat(product.max_loss_percent) || 0,
+        mode: product.mode || 'MAX_PROFIT',
+        maxRounds: parseInt(product.max_rounds) || 10,
+        category: product.category || 'General',
+      });
+      setAddProductMsg({ type: 'success', text: `"${name}" added to your products!` });
+      setTimeout(() => setAddProductMsg(null), 5000);
+    } catch (err) {
+      setError(err.message || 'Failed to add product');
+    }
+    setAddingProduct(false);
   };
 
   // ─── Filter insights ─────────────────────────────────────────
@@ -223,13 +247,13 @@ export default function Authority() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
                 <div>
                   <span className="text-neo-orange font-bold text-[10px] sm:text-sm uppercase tracking-wide">
-                    {t('authority.badge')}
+                    Product Analyzer
                   </span>
                   <h1 className="text-xl sm:text-3xl font-black text-neo-cream mt-0.5 sm:mt-1">
-                    {t('authority.title')}
+                    Analyze Product
                   </h1>
                   <p className="text-neo-cream/60 text-[10px] sm:text-sm mt-0.5 sm:mt-1">
-                    {t('authority.subtitle')}
+                    Calculate metrics, run competitive analysis, and add products to your catalog
                   </p>
                 </div>
                 <div className="flex gap-1.5 sm:gap-3">
@@ -249,7 +273,7 @@ export default function Authority() {
                     className="!py-1 sm:!py-2 !px-2 sm:!px-4 !text-[10px] sm:!text-sm"
                   >
                     <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                    {t('authority.refresh')}
+                    Reset
                   </NeoButton>
                 </div>
               </div>
@@ -315,9 +339,29 @@ export default function Authority() {
                     value={product.product_description}
                     onChange={e => handleProductChange('product_description', e.target.value)}
                     placeholder="Describe key features, specs, USPs..."
-                    rows={3}
+                    rows={2}
                     className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors resize-none"
                   />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+                    <Tag className="w-3 h-3" />
+                    Category
+                  </label>
+                  <select
+                    value={product.category}
+                    onChange={e => handleProductChange('category', e.target.value)}
+                    className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
+                  >
+                    <option value="General">General</option>
+                    <option value="Electronics">Electronics</option>
+                    <option value="Fashion">Fashion</option>
+                    <option value="Consumables">Consumables</option>
+                    <option value="Services">Services</option>
+                    <option value="Furniture">Furniture</option>
+                    <option value="Software">Software</option>
+                    <option value="Health">Health</option>
+                  </select>
                 </div>
               </div>
             </NeoCard>
@@ -337,11 +381,18 @@ export default function Authority() {
                   placeholder="500"
                 />
                 <InputField
-                  label="Selling Price"
+                  label="Selling Price (Base Price)"
                   value={product.selling_price}
                   onChange={v => handleProductChange('selling_price', v)}
                   icon={IndianRupee}
                   placeholder="999"
+                />
+                <InputField
+                  label="Min Acceptable Price"
+                  value={product.min_acceptable_price}
+                  onChange={v => handleProductChange('min_acceptable_price', v)}
+                  icon={IndianRupee}
+                  placeholder="Defaults to cost price"
                 />
                 <InputField
                   label="Initial Stock"
@@ -374,40 +425,40 @@ export default function Authority() {
               </div>
             </NeoCard>
 
-            {/* Performance Signals */}
+            {/* Negotiation Settings */}
             <NeoCard className="p-2 sm:p-4">
               <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-neo-teal" />
-                Performance Signals
+                <Settings className="w-4 h-4 text-neo-teal" />
+                Negotiation Settings
               </h3>
               <div className="space-y-2 sm:space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+                    <Zap className="w-3 h-3" />
+                    Strategy Mode
+                  </label>
+                  <select
+                    value={product.mode}
+                    onChange={e => handleProductChange('mode', e.target.value)}
+                    className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
+                  >
+                    <option value="MAX_PROFIT">MAX PROFIT</option>
+                    <option value="MIN_LOSS">MIN LOSS</option>
+                  </select>
+                </div>
                 <InputField
-                  label="Chat Sessions"
-                  value={performance.chats}
-                  onChange={v => handlePerformanceChange('chats', v)}
-                  icon={Users}
-                  placeholder="150"
+                  label="Max Negotiation Rounds"
+                  value={product.max_rounds}
+                  onChange={v => handleProductChange('max_rounds', v)}
+                  icon={Activity}
+                  placeholder="10"
                 />
                 <InputField
-                  label="Orders"
-                  value={performance.orders}
-                  onChange={v => handlePerformanceChange('orders', v)}
-                  icon={ShoppingCart}
-                  placeholder="45"
-                />
-                <InputField
-                  label="Units Sold"
-                  value={performance.units_sold}
-                  onChange={v => handlePerformanceChange('units_sold', v)}
-                  icon={Package}
-                  placeholder="52"
-                />
-                <InputField
-                  label="Returns"
-                  value={performance.returns}
-                  onChange={v => handlePerformanceChange('returns', v)}
-                  icon={XCircle}
-                  placeholder="3"
+                  label="Max Loss %"
+                  value={product.max_loss_percent}
+                  onChange={v => handleProductChange('max_loss_percent', v)}
+                  icon={Percent}
+                  placeholder="0"
                 />
               </div>
             </NeoCard>
@@ -452,7 +503,41 @@ export default function Authority() {
                 </>
               )}
             </NeoButton>
+
+            <NeoButton
+              onClick={handleAddToProducts}
+              variant="teal"
+              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
+              disabled={addingProduct || !product.product_name || !product.selling_price || !product.cost_price}
+            >
+              {addingProduct ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="w-4 h-4 mr-2" />
+                  Add to Products
+                </>
+              )}
+            </NeoButton>
           </div>
+
+          {/* Success message for Add to Products */}
+          {addProductMsg && (
+            <div className="mb-4 sm:mb-6">
+              <NeoCard className={`p-2 sm:p-3 ${addProductMsg.type === 'success' ? 'bg-neo-teal/10 border-neo-teal' : 'bg-neo-maroon/10 border-neo-maroon'}`}>
+                <p className={`font-bold text-[10px] sm:text-xs flex items-center gap-1 ${addProductMsg.type === 'success' ? 'text-neo-teal' : 'text-neo-maroon'}`}>
+                  {addProductMsg.type === 'success' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                  {addProductMsg.text}
+                  {addProductMsg.type === 'success' && (
+                    <Link to="/products" className="underline ml-2 hover:text-neo-navy">View Products →</Link>
+                  )}
+                </p>
+              </NeoCard>
+            </div>
+          )}
 
           {/* Error Display */}
           {error && (
