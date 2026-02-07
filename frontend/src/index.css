@@ -1,0 +1,224 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Professional Color Palette:
+   Navy:   #001524 (dark navy)
+   Teal:   #15616D (teal)
+   Cream:  #FFECD1 (background)
+   Orange: #FF7D00 (accent)
+   Maroon: #78290F (dark red)
+*/
+
+@layer base {
+  :root {
+    --color-navy: #001524;
+    --color-teal: #15616D;
+    --color-cream: #FFECD1;
+    --color-orange: #FF7D00;
+    --color-maroon: #78290F;
+    
+    --background: 36 100% 91%;
+    --foreground: 200 100% 7%;
+    --card: 36 100% 91%;
+    --card-foreground: 200 100% 7%;
+    --popover: 36 100% 91%;
+    --popover-foreground: 200 100% 7%;
+    --primary: 30 100% 50%;
+    --primary-foreground: 36 100% 91%;
+    --secondary: 186 67% 25%;
+    --secondary-foreground: 36 100% 91%;
+    --muted: 36 50% 85%;
+    --muted-foreground: 200 50% 30%;
+    --accent: 30 100% 50%;
+    --accent-foreground: 200 100% 7%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 100% 7%;
+    --input: 200 100% 7%;
+    --ring: 30 100% 50%;
+    --radius: 0px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-neo-navy;
+  }
+  
+  body {
+    @apply bg-neo-cream text-neo-navy antialiased font-body;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading font-bold;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+}
+
+@layer components {
+  /* Neo-Brutalist Card */
+  .neo-card {
+    @apply bg-neo-cream border-[3px] border-neo-navy shadow-neo;
+  }
+  
+  .neo-card-teal {
+    @apply bg-neo-teal border-[3px] border-neo-navy shadow-neo text-neo-cream;
+  }
+  
+  .neo-card-orange {
+    @apply bg-neo-orange border-[3px] border-neo-navy shadow-neo text-neo-navy;
+  }
+  
+  .neo-card-maroon {
+    @apply bg-neo-maroon border-[3px] border-neo-navy shadow-neo text-neo-cream;
+  }
+  
+  .neo-card-navy {
+    @apply bg-neo-navy border-[3px] border-neo-navy shadow-neo-lg text-neo-cream;
+  }
+
+  /* Neo-Brutalist Button */
+  .neo-btn {
+    @apply inline-flex items-center justify-center px-6 py-3 
+           bg-neo-cream border-[3px] border-neo-navy shadow-neo
+           font-heading font-bold text-neo-navy uppercase tracking-wide
+           transition-all duration-150
+           hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-neo-hover
+           active:translate-x-[4px] active:translate-y-[4px] active:shadow-none
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-neo;
+  }
+  
+  .neo-btn-teal {
+    @apply neo-btn bg-neo-teal text-neo-cream;
+  }
+  
+  .neo-btn-orange {
+    @apply neo-btn bg-neo-orange text-neo-navy;
+  }
+  
+  .neo-btn-maroon {
+    @apply neo-btn bg-neo-maroon text-neo-cream;
+  }
+  
+  .neo-btn-navy {
+    @apply neo-btn bg-neo-navy text-neo-cream;
+  }
+
+  /* Neo-Brutalist Input */
+  .neo-input {
+    @apply w-full px-4 py-3 bg-neo-cream border-[3px] border-neo-navy 
+           font-body text-neo-navy placeholder:text-neo-navy/50
+           focus:outline-none focus:ring-0 focus:shadow-neo-lg
+           transition-shadow duration-150;
+  }
+  
+  .neo-textarea {
+    @apply neo-input resize-none;
+  }
+
+  /* Neo-Brutalist Badge */
+  .neo-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 
+           border-[2px] border-neo-navy font-heading font-bold text-sm uppercase;
+  }
+  
+  .neo-badge-teal {
+    @apply neo-badge bg-neo-teal text-neo-cream;
+  }
+  
+  .neo-badge-orange {
+    @apply neo-badge bg-neo-orange text-neo-navy;
+  }
+  
+  .neo-badge-maroon {
+    @apply neo-badge bg-neo-maroon text-neo-cream;
+  }
+  
+  .neo-badge-navy {
+    @apply neo-badge bg-neo-navy text-neo-cream;
+  }
+
+  /* Animated Alert Banner */
+  .neo-alert-banner {
+    @apply w-full bg-neo-orange border-y-[3px] border-neo-navy py-2 overflow-hidden;
+  }
+  
+  .neo-alert-text {
+    @apply inline-block whitespace-nowrap font-heading font-bold text-neo-navy uppercase tracking-wider animate-marquee;
+  }
+
+  /* Status Badges */
+  .neo-status {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 border-[2px] border-neo-navy font-bold text-xs uppercase;
+  }
+  
+  .neo-status-pending {
+    @apply neo-status bg-neo-orange text-neo-navy;
+  }
+  
+  .neo-status-success {
+    @apply neo-status bg-neo-teal text-neo-cream;
+  }
+  
+  .neo-status-error {
+    @apply neo-status bg-neo-maroon text-neo-cream;
+  }
+  
+  .neo-status-info {
+    @apply neo-status bg-neo-navy text-neo-cream;
+  }
+
+  /* Shake Animation for Dangerous Actions */
+  .neo-danger:hover {
+    @apply animate-shake;
+  }
+
+  /* Section Divider */
+  .neo-divider {
+    @apply w-full h-[3px] bg-neo-navy;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-neo-cream border-l-[3px] border-neo-navy;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-neo-navy;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-neo-teal;
+}
+
+/* Selection */
+::selection {
+  @apply bg-neo-orange text-neo-navy;
+}
+
+/* Fade-in Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
