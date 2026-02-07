@@ -226,6 +226,7 @@ def _parse_flipkart_card(card) -> Optional[Dict[str, Any]]:
         # Title – multiple possible selectors
         title_el = (
             card.select_one('a[title]') or
+            card.select_one('a.pIpigb') or       # 2025 product title link
             card.select_one('.KzDlHZ') or        # 2024+ product title class
             card.select_one('._4rR01T') or       # older class
             card.select_one('.s1Q9rs') or
@@ -239,6 +240,7 @@ def _parse_flipkart_card(card) -> Optional[Dict[str, Any]]:
 
         # Price
         price_el = (
+            card.select_one('.hZ3P6w') or        # 2025 price class
             card.select_one('.Nx9bqj') or        # 2024+ price class
             card.select_one('._30jeq3') or       # older class
             card.select_one('._1_WHN1') or
@@ -251,6 +253,7 @@ def _parse_flipkart_card(card) -> Optional[Dict[str, Any]]:
         # Rating
         rating = None
         rating_el = (
+            card.select_one('.MKiFS6') or        # 2025 rating class
             card.select_one('.XQDdHH') or        # 2024+ rating badge
             card.select_one('._3LWZlK') or       # older class
             card.select_one('.hGSR34')
@@ -263,10 +266,14 @@ def _parse_flipkart_card(card) -> Optional[Dict[str, Any]]:
 
         # Review / rating count
         review_count = None
-        count_el = card.select_one('.Wphh3N span:last-child') or card.select_one('._2_R_DZ span')
+        count_el = (
+            card.select_one('.PvbNMB') or        # 2025 review count "(24)"
+            card.select_one('.Wphh3N span:last-child') or
+            card.select_one('._2_R_DZ span')
+        )
         if count_el:
             txt = count_el.get_text(strip=True)
-            # "1,234 Ratings" or "567 Reviews"
+            # "1,234 Ratings" or "567 Reviews" or "(24)"
             review_count = _safe_int(txt)
 
         return {"title": title, "price": price, "rating": rating,
