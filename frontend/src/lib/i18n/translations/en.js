@@ -52,7 +52,7 @@ const en = {
         reporter: 'Dashboard',
         authority: 'Analytics',
         jury: 'Strategies',
-        wallet: 'API',
+        wallet: 'API Docs',
     },
 
     // Landing Page

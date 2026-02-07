@@ -39,7 +39,7 @@ const hi = {
         reporter: 'रिपोर्टर',
         authority: 'अधिकारी',
         jury: 'जूरी',
-        wallet: 'वॉलेट',
+        wallet: 'एपीआई डॉक्स',
     },
 
     // Landing Page
@@ -417,7 +417,7 @@ const hi = {
         quickLinks: 'त्वरित लिंक',
         startReporting: '→ रिपोर्टिंग शुरू करें',
         authorityDashboard: '→ अधिकारी डैशबोर्ड',
-        checkReputation: '→ प्रतिष्ठा जांचें',
+        checkReputation: '→ एपीआई डॉक्यूमेंटेशन',
         disclaimer: 'अस्वीकरण',
         disclaimerText: 'यह प्रोजेक्ट VEIL के लिए केवल फ्रंटएंड डेमो है। कोई वास्तविक ब्लॉकचेन लेनदेन या डेटा संग्रहण नहीं होता है। सभी डेटा स्थानीय स्थिति का उपयोग करके मॉक किया गया है।',
         copyright: '© 2026 SAYLESS प्रोटोकॉल • प्रोजेक्ट VEIL के लिए निर्मित',
