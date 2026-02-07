@@ -237,7 +237,7 @@ Based on this analysis, provide the optimal negotiation posture as JSON with the
   "flexibility": <float 0.0-1.0, willingness to make concessions>,
   "risk_tolerance": <float 0.0-1.0, willingness to walk away from deal>,
   "target_price": <float, ideal closing price per unit — between min_acceptable_price and base_price>,
-  "reservation_price": <float, minimum acceptable price — at or above min_acceptable_price>,
+  "reservation_price": <float, this MUST equal min_acceptable_price — the real acceptance floor>,
   "walk_away_price": <float, absolute minimum — at or above min_acceptable_price (can be below cost only if max_loss_percentage > 0)>,
   "total_concession_budget": <float, max dollars to concede from target_price down to reservation_price>,
   "per_round_concession": <float, suggested dollar concession per round>,
@@ -273,11 +273,12 @@ You understand:
 - When to walk away vs close the deal
 
 CRITICAL CONSTRAINTS:
-1. NEVER accept a price below the walk_away_price
-2. NEVER counter with a price below the reservation_price
-3. Track concession budget — don't concede more than available
-4. In MAX_PROFIT mode: be firm, protect margins
-5. In MIN_LOSS mode: be flexible, prioritize closing"""
+1. NEVER accept a price below min_acceptable_price — any offer at or above this floor is auto-accepted by the system
+2. Counter price must ALWAYS be <= our last offer — NEVER raise our price
+3. Counter price must ALWAYS be >= min_acceptable_price
+4. Track concession budget — don't concede more than available
+5. In MAX_PROFIT mode: be firm, concede slowly to maximize the accepted price
+6. In MIN_LOSS mode: be flexible, encourage the buyer to meet the minimum quickly"""
 
 
 def build_initial_offer_pricing_prompt(
@@ -376,14 +377,15 @@ CONCESSION BUDGET:
 QUANTITY: {requested_quantity} units
 
 DECISION RULES:
-- "accept" if buyer's offer is at or above target_price, OR at/above reservation_price in late rounds or MIN_LOSS mode
-- "counter" if buyer's offer is above walk_away_price but below acceptance threshold — provide a new counter price
-- "reject" if buyer's offer is at/below walk_away_price AND we're in the final round, OR if no progress is possible
-- Counter price MUST be >= reservation_price (${reservation_price})
-- Counter price should be LOWER than our last offer (${our_last_offer}) to show concession
+- The buyer's offer of ${buyer_offered} is BELOW the seller's minimum acceptable price (${min_acceptable_price})
+- You CANNOT accept this offer. You must either COUNTER or REJECT.
+- "counter" — provide a new counter price that is LOWER than (or equal to) our last offer of ${our_last_offer}
+- "reject" — only if this is the final round or buyer is clearly not negotiating in good faith
+- Counter price MUST be >= min_acceptable_price (${min_acceptable_price})
+- Counter price MUST be <= our last offer (${our_last_offer}) — NEVER raise our price
+- Show the buyer we are moving toward them, but not below our minimum
 - Consider buyer's movement pattern — are they increasing offers? By how much?
-- Match concession reciprocity — if buyer barely moved, concede less
-- In late rounds, be more willing to accept near reservation_price
+- If buyer barely moved, concede less. If buyer made a big jump, concede more.
 
 Respond with ONLY this JSON:
 {{
