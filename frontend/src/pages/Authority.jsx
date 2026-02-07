@@ -4,7 +4,7 @@ import {
   BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
   Clock, AlertTriangle, ExternalLink, Bot, FileText, Filter,
   Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User,
-  DollarSign, TrendingUp, TrendingDown, ShoppingCart, Package,
+  IndianRupee, TrendingUp, TrendingDown, ShoppingCart, Package,
   Percent, Activity, Zap, Info, ChevronRight, Calculator,
   Sparkles, Target, Shield, Search, Lightbulb
 } from 'lucide-react';
@@ -77,12 +77,12 @@ export default function Authority() {
   // ─── Stats derived from analytics response ───────────────────
   const stats = analyticsData
     ? {
-        revenue:    `$${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}`,
-        profit:     `$${Number(analyticsData.summary_metrics.profit_or_loss).toLocaleString()}`,
+        revenue:    `₹${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}`,
+        profit:     `₹${Number(analyticsData.summary_metrics.profit_or_loss).toLocaleString()}`,
         margin:     `${Number(analyticsData.summary_metrics.profit_margin_percent).toFixed(1)}%`,
         conversion: `${Number(analyticsData.summary_metrics.conversion_rate).toFixed(1)}%`,
       }
-    : { revenue: '$0', profit: '$0', margin: '0%', conversion: '0%' };
+    : { revenue: '₹0', profit: '₹0', margin: '0%', conversion: '0%' };
 
   // ─── Health check on mount ───────────────────────────────────
   useEffect(() => {
@@ -333,14 +333,14 @@ export default function Authority() {
                   label="Cost Price"
                   value={product.cost_price}
                   onChange={v => handleProductChange('cost_price', v)}
-                  icon={DollarSign}
+                  icon={IndianRupee}
                   placeholder="500"
                 />
                 <InputField
                   label="Selling Price"
                   value={product.selling_price}
                   onChange={v => handleProductChange('selling_price', v)}
-                  icon={DollarSign}
+                  icon={IndianRupee}
                   placeholder="999"
                 />
                 <InputField
@@ -564,26 +564,26 @@ export default function Authority() {
                             {/* Revenue Card */}
                             <NeoCard className="p-2 sm:p-4">
                               <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2">
-                                <DollarSign className="w-3 h-3 sm:w-4 sm:h-4" />
+                                <IndianRupee className="w-3 h-3 sm:w-4 sm:h-4" />
                                 Revenue
                               </p>
                               <div className="space-y-1 sm:space-y-2">
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Gross Revenue</span>
                                   <span className="font-bold text-neo-navy">
-                                    ${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Net Revenue</span>
                                   <span className="font-bold text-neo-teal">
-                                    ${Number(analyticsData.summary_metrics.net_revenue).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.net_revenue).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Effective Price</span>
                                   <span className="font-bold text-neo-navy">
-                                    ${Number(analyticsData.summary_metrics.effective_selling_price).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.effective_selling_price).toLocaleString()}
                                   </span>
                                 </div>
                               </div>
@@ -599,31 +599,31 @@ export default function Authority() {
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Product Cost</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.product_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.product_cost).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Platform Fee</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.platform_fee).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.platform_fee).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Shipping</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.shipping_total).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.shipping_total).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Marketing</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.marketing_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.marketing_cost).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm border-t border-neo-navy/10 pt-1">
                                   <span className="text-neo-navy font-bold">Total Cost</span>
                                   <span className="font-black text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.total_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.total_cost).toLocaleString()}
                                   </span>
                                 </div>
                               </div>
@@ -637,7 +637,7 @@ export default function Authority() {
                               <p className={`text-lg sm:text-2xl font-bold ${
                                 Number(analyticsData.summary_metrics.profit_per_unit) >= 0 ? 'text-neo-teal' : 'text-neo-maroon'
                               }`}>
-                                ${Number(analyticsData.summary_metrics.profit_per_unit).toFixed(0)}
+                                ₹{Number(analyticsData.summary_metrics.profit_per_unit).toFixed(0)}
                               </p>
                             </div>
                             <div className="p-2 sm:p-3 bg-neo-navy text-center">
@@ -708,15 +708,16 @@ export default function Authority() {
                               <div className="space-y-2">
                                 {analyticsData.charts.revenue_breakdown.labels.map((label, i) => {
                                   const dataset = analyticsData.charts.revenue_breakdown.datasets[0];
-                                  const value = dataset?.values?.[i] || 0;
-                                  const maxVal = Math.max(...(dataset?.values || [1]));
-                                  const pct = maxVal > 0 ? (Number(value) / Number(maxVal)) * 100 : 0;
-                                  const color = dataset?.colors?.[i] || '#1a1a2e';
+                                  const value = dataset?.data?.[i] ?? 0;
+                                  const absValues = (dataset?.data || [1]).map(v => Math.abs(Number(v)));
+                                  const maxVal = Math.max(...absValues);
+                                  const pct = maxVal > 0 ? (Math.abs(Number(value)) / maxVal) * 100 : 0;
+                                  const color = dataset?.backgroundColor?.[i] || '#1a1a2e';
                                   return (
                                     <div key={label}>
                                       <div className="flex justify-between text-xs text-neo-navy/60 mb-1">
                                         <span className="font-bold">{label}</span>
-                                        <span className="font-mono">${Number(value).toLocaleString()}</span>
+                                        <span className="font-mono">₹{Number(value).toLocaleString()}</span>
                                       </div>
                                       <div className="w-full h-4 bg-neo-navy/10 border border-neo-navy/20">
                                         <div
@@ -741,11 +742,11 @@ export default function Authority() {
                                 {analyticsData.charts.sales_funnel.stages.map((stage, i) => (
                                   <div key={stage.stage} className="flex items-center gap-3">
                                     <div className="w-24 sm:w-32 text-xs font-bold text-neo-navy truncate">{stage.stage}</div>
-                                    <div className="flex-1 h-6 bg-neo-navy/10 border border-neo-navy/20 relative">
+                                    <div className="flex-1 h-6 bg-neo-navy/10 border border-neo-navy/20 relative overflow-hidden">
                                       <div
                                         className="h-full transition-all flex items-center justify-end pr-2"
                                         style={{
-                                          width: `${Math.max(Number(stage.percentage), 5)}%`,
+                                          width: `${Math.min(Math.max(Number(stage.percentage), 5), 100)}%`,
                                           backgroundColor: stage.color,
                                         }}
                                       >
@@ -801,7 +802,7 @@ export default function Authority() {
                                 >
                                   <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">{cost.label}</p>
                                   <p className="text-neo-cream font-bold text-sm sm:text-lg">
-                                    ${Number(cost.value).toLocaleString()}
+                                    ₹{Number(cost.value).toLocaleString()}
                                   </p>
                                 </div>
                               ))}
@@ -818,7 +819,7 @@ export default function Authority() {
 
                               {/* Market Position */}
                               <NeoCard className="p-3 sm:p-4 mb-3">
-                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Your Market Position</p>
+                                <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Your Market Position</p>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                   <div className="p-2 bg-neo-navy text-center">
                                     <p className="text-neo-cream/60 text-[8px] uppercase">Position</p>
@@ -852,7 +853,7 @@ export default function Authority() {
 
                               {/* Market Summary */}
                               <NeoCard className="p-3 sm:p-4 mb-3">
-                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Market Prices</p>
+                                <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Market Prices</p>
                                 <div className="grid grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <p className="text-[8px] text-neo-navy/50 uppercase">Min</p>
@@ -876,7 +877,7 @@ export default function Authority() {
                               {/* Competitor Samples */}
                               {competitiveData.competitor_sample?.length > 0 && (
                                 <NeoCard className="p-3 sm:p-4">
-                                  <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Top Competitors</p>
+                                  <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Top Competitors</p>
                                   <div className="space-y-2">
                                     {competitiveData.competitor_sample.map((comp, i) => (
                                       <div key={i} className="flex items-center justify-between p-2 border-[2px] border-neo-navy/10 hover:border-neo-navy/30 transition-all">
@@ -909,7 +910,7 @@ export default function Authority() {
                                       <Sparkles className="w-5 h-5 text-neo-navy" />
                                     </div>
                                     <div>
-                                      <p className="font-bold text-neo-navy">AI Deep Analysis</p>
+                                      <p className="text-base sm:text-lg font-bold text-neo-navy">AI Deep Analysis</p>
                                       <p className="text-[10px] text-neo-navy/50">Powered by Gemini</p>
                                     </div>
                                   </div>
@@ -943,11 +944,11 @@ export default function Authority() {
                                     {competitiveData.llm_analysis.recommended_price != null && (
                                       <NeoCard className="p-3 sm:p-4 bg-neo-teal/10 border-[2px] border-neo-teal">
                                         <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-teal mb-1 flex items-center gap-1">
-                                          <DollarSign className="w-3 h-3" />
+                                          <IndianRupee className="w-3 h-3" />
                                           AI Recommended Price
                                         </p>
                                         <p className="text-2xl sm:text-3xl font-black text-neo-teal">
-                                          ${Number(competitiveData.llm_analysis.recommended_price).toLocaleString()}
+                                          ₹{Number(competitiveData.llm_analysis.recommended_price).toLocaleString()}
                                         </p>
                                         <p className="text-[10px] text-neo-navy/50 mt-1">
                                           {(() => {

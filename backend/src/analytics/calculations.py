@@ -237,16 +237,19 @@ def build_funnel_chart(performance: PerformanceSignals, revenue: RevenueMetrics)
     units_sold = revenue.units_sold
     net_units = revenue.net_units_sold
     
+    # All percentages relative to top of funnel (chats) for proper funnel visualization
+    top = Decimal(chats) if chats > 0 else Decimal("1")
+    
     stages = [
         FunnelStage(stage="Inquiries", value=chats, percentage=Decimal("100.00"), color=COLORS["chats"]),
         FunnelStage(stage="Orders", value=orders, 
-                    percentage=safe_percentage(Decimal(orders), Decimal(chats)) if chats > 0 else Decimal("0"),
+                    percentage=min(safe_percentage(Decimal(orders), top), Decimal("100.00")),
                     color=COLORS["orders"]),
         FunnelStage(stage="Units Sold", value=units_sold,
-                    percentage=safe_percentage(Decimal(units_sold), Decimal(orders)) if orders > 0 else Decimal("0"),
+                    percentage=min(safe_percentage(Decimal(units_sold), top), Decimal("100.00")),
                     color=COLORS["units"]),
         FunnelStage(stage="Net Sales", value=net_units,
-                    percentage=safe_percentage(Decimal(net_units), Decimal(units_sold)) if units_sold > 0 else Decimal("0"),
+                    percentage=min(safe_percentage(Decimal(net_units), top), Decimal("100.00")),
                     color=COLORS["sold"]),
     ]
     
