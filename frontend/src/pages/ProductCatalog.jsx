@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
     Package, Plus, Pencil, Trash2, Upload, X, Search,
-    DollarSign, TrendingUp, Settings, AlertCircle, Check,
-    BarChart3, Loader2, ArrowRight
+    DollarSign, TrendingUp, TrendingDown, Settings, AlertCircle, Check,
+    BarChart3, Loader2, ArrowRight, ChevronDown, ChevronUp,
+    IndianRupee, Target, Zap, ShoppingCart, Percent, Activity,
+    PieChart, Award
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
@@ -20,6 +22,7 @@ export default function ProductCatalog() {
     const [editingProduct, setEditingProduct] = useState(null);
     const [importResult, setImportResult] = useState(null);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [analyticsOpen, setAnalyticsOpen] = useState(null); // product id or null
 
     // Form state
     const [form, setForm] = useState({
@@ -411,6 +414,17 @@ export default function ProductCatalog() {
                                         <NeoButton variant="default" size="sm" onClick={() => openEdit(product)}>
                                             <Pencil className="w-4 h-4 mr-1" /> Edit
                                         </NeoButton>
+                                        <NeoButton
+                                            variant={analyticsOpen === product.id ? 'teal' : 'orange'}
+                                            size="sm"
+                                            onClick={() => setAnalyticsOpen(analyticsOpen === product.id ? null : product.id)}
+                                        >
+                                            <BarChart3 className="w-4 h-4 mr-1" />
+                                            {analyticsOpen === product.id ? 'Hide' : 'Show'} Analytics
+                                            {analyticsOpen === product.id
+                                                ? <ChevronUp className="w-3 h-3 ml-1" />
+                                                : <ChevronDown className="w-3 h-3 ml-1" />}
+                                        </NeoButton>
                                         {deleteConfirm === product.id ? (
                                             <div className="flex items-center gap-2 ml-auto">
                                                 <span className="text-xs text-neo-maroon font-bold">Delete?</span>
@@ -423,6 +437,223 @@ export default function ProductCatalog() {
                                             </button>
                                         )}
                                     </div>
+
+                                    {/* ──── Inline Analytics Panel ──── */}
+                                    {analyticsOpen === product.id && (() => {
+                                        const margin = product.basePrice > 0
+                                            ? ((product.basePrice - product.costPrice) / product.basePrice * 100)
+                                            : 0;
+                                        const markup = product.costPrice > 0
+                                            ? ((product.basePrice - product.costPrice) / product.costPrice * 100)
+                                            : 0;
+                                        const profitPerUnit = product.basePrice - product.costPrice;
+                                        const acceptRate = product.stats.totalSessions > 0
+                                            ? (product.stats.acceptedDeals / product.stats.totalSessions * 100)
+                                            : 0;
+                                        const priceRange = product.basePrice - product.costPrice;
+                                        const minPos = priceRange > 0
+                                            ? ((product.minAcceptablePrice - product.costPrice) / priceRange * 100)
+                                            : 50;
+                                        const maxLossAmt = product.basePrice * (product.maxLossPercent / 100);
+                                        const negotiationBuffer = product.basePrice - product.minAcceptablePrice;
+                                        const bufferPercent = product.basePrice > 0 ? (negotiationBuffer / product.basePrice * 100) : 0;
+
+                                        return (
+                                            <div className="border-t-[3px] border-neo-navy bg-gradient-to-b from-neo-cream to-white">
+                                                {/* Analytics Header */}
+                                                <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                                                    <div className="w-7 h-7 bg-neo-orange flex items-center justify-center">
+                                                        <PieChart className="w-4 h-4 text-neo-navy" />
+                                                    </div>
+                                                    <p className="font-heading font-bold text-neo-navy text-sm">Product Analytics</p>
+                                                    <span className="text-[10px] text-neo-navy/40 ml-auto uppercase font-bold tracking-wider">Live Data</span>
+                                                </div>
+
+                                                {/* ── Row 1: Key Metrics ── */}
+                                                <div className="px-4 pb-3">
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                        <div className="bg-neo-navy p-3 text-center">
+                                                            <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Profit / Unit</p>
+                                                            <p className={`text-xl font-heading font-bold ${profitPerUnit >= 0 ? 'text-neo-teal' : 'text-neo-maroon'}`}>
+                                                                ₹{profitPerUnit.toFixed(0)}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-3 text-center">
+                                                            <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Margin</p>
+                                                            <p className={`text-xl font-heading font-bold ${margin >= 20 ? 'text-neo-teal' : margin >= 10 ? 'text-neo-orange' : 'text-neo-maroon'}`}>
+                                                                {margin.toFixed(1)}%
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-3 text-center">
+                                                            <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Markup</p>
+                                                            <p className="text-xl font-heading font-bold text-neo-orange">
+                                                                {markup.toFixed(1)}%
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-3 text-center">
+                                                            <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Accept Rate</p>
+                                                            <p className={`text-xl font-heading font-bold ${acceptRate >= 50 ? 'text-neo-teal' : acceptRate > 0 ? 'text-neo-orange' : 'text-neo-cream/30'}`}>
+                                                                {product.stats.totalSessions > 0 ? `${acceptRate.toFixed(0)}%` : '—'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* ── Row 2: Price Range Visualization ── */}
+                                                <div className="px-4 pb-3">
+                                                    <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                        <Target className="w-3 h-3" /> Price Positioning
+                                                    </p>
+                                                    <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3">
+                                                        {/* Price bar */}
+                                                        <div className="relative h-8 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                            {/* Cost zone */}
+                                                            <div className="absolute inset-y-0 left-0 bg-neo-maroon/20" style={{ width: `${100 - margin}%` }} />
+                                                            {/* Profit zone */}
+                                                            <div className="absolute inset-y-0 right-0 bg-neo-teal/30" style={{ width: `${margin}%` }} />
+                                                            {/* Min acceptable marker */}
+                                                            <div
+                                                                className="absolute top-0 bottom-0 w-0.5 bg-neo-orange z-10"
+                                                                style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
+                                                            >
+                                                                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-neo-orange text-neo-navy text-[8px] font-bold px-1.5 py-0.5 whitespace-nowrap">
+                                                                    Min ₹{product.minAcceptablePrice}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        {/* Labels */}
+                                                        <div className="flex justify-between mt-1.5">
+                                                            <span className="text-[10px] font-bold text-neo-maroon flex items-center gap-0.5">
+                                                                <TrendingDown className="w-3 h-3" /> Cost ₹{product.costPrice}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-neo-teal flex items-center gap-0.5">
+                                                                Base ₹{product.basePrice} <TrendingUp className="w-3 h-3" />
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* ── Row 3: Negotiation & Strategy ── */}
+                                                <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    {/* Negotiation Buffer */}
+                                                    <div className="border-[2px] border-neo-navy p-3">
+                                                        <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                            <Activity className="w-3 h-3" /> Negotiation Room
+                                                        </p>
+                                                        <div className="space-y-2">
+                                                            <div>
+                                                                <div className="flex justify-between text-[10px] mb-1">
+                                                                    <span className="text-neo-navy/60 font-bold">Buffer</span>
+                                                                    <span className="font-bold text-neo-navy">₹{negotiationBuffer.toFixed(0)} ({bufferPercent.toFixed(1)}%)</span>
+                                                                </div>
+                                                                <div className="h-3 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                    <div
+                                                                        className={`h-full transition-all ${bufferPercent > 20 ? 'bg-neo-teal' : bufferPercent > 10 ? 'bg-neo-orange' : 'bg-neo-maroon'}`}
+                                                                        style={{ width: `${Math.min(bufferPercent, 100)}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className="text-neo-navy/60">Max Loss</span>
+                                                                <span className="font-bold text-neo-maroon">{product.maxLossPercent}% (₹{maxLossAmt.toFixed(0)})</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className="text-neo-navy/60">Max Rounds</span>
+                                                                <span className="font-bold text-neo-navy">{product.maxRounds}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Deal Funnel */}
+                                                    <div className="border-[2px] border-neo-navy p-3">
+                                                        <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                            <ShoppingCart className="w-3 h-3" /> Deal Funnel
+                                                        </p>
+                                                        {product.stats.totalSessions > 0 ? (
+                                                            <div className="space-y-1.5">
+                                                                {/* Sessions bar */}
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-navy">Sessions</span>
+                                                                        <span className="font-bold text-neo-navy">{product.stats.totalSessions}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy flex items-center justify-end pr-2">
+                                                                        <span className="text-[9px] font-bold text-neo-cream/70">100%</span>
+                                                                    </div>
+                                                                </div>
+                                                                {/* Deals bar */}
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-teal">Deals Closed</span>
+                                                                        <span className="font-bold text-neo-teal">{product.stats.acceptedDeals}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                        <div
+                                                                            className="h-full bg-neo-teal flex items-center justify-end pr-2 transition-all"
+                                                                            style={{ width: `${Math.max(acceptRate, 4)}%` }}
+                                                                        >
+                                                                            {acceptRate >= 15 && (
+                                                                                <span className="text-[9px] font-bold text-neo-cream">{acceptRate.toFixed(0)}%</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                {/* Lost bar */}
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-maroon">Lost / Rejected</span>
+                                                                        <span className="font-bold text-neo-maroon">{product.stats.totalSessions - product.stats.acceptedDeals}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                        <div
+                                                                            className="h-full bg-neo-maroon/70 flex items-center justify-end pr-2 transition-all"
+                                                                            style={{ width: `${Math.max(100 - acceptRate, 4)}%` }}
+                                                                        >
+                                                                            {(100 - acceptRate) >= 15 && (
+                                                                                <span className="text-[9px] font-bold text-neo-cream">{(100 - acceptRate).toFixed(0)}%</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="h-24 flex items-center justify-center text-neo-navy/30 border-[2px] border-dashed border-neo-navy/20">
+                                                                <div className="text-center">
+                                                                    <ShoppingCart className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                                                                    <p className="text-[10px]">No negotiations yet</p>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* ── Row 4: Revenue & Summary ── */}
+                                                <div className="px-4 pb-4">
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        <div className="bg-neo-teal/10 border-[2px] border-neo-teal p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-teal/70 tracking-wider">Revenue</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-teal">
+                                                                ₹{(product.stats.revenue || 0).toLocaleString()}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-orange/10 border-[2px] border-neo-orange p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-orange/70 tracking-wider">Avg Margin</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-orange">
+                                                                {product.stats.avgMargin > 0 ? `${product.stats.avgMargin.toFixed(1)}%` : '—'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-navy/50 tracking-wider">Strategy</p>
+                                                            <p className={`text-sm font-heading font-bold ${product.mode === 'MAX_PROFIT' ? 'text-neo-teal' : 'text-neo-maroon'}`}>
+                                                                {product.mode === 'MAX_PROFIT' ? 'MAX PROFIT' : 'MIN LOSS'}
+                                                            </p>
+                                                            <Award className="w-4 h-4 mx-auto mt-1 text-neo-navy/30" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </NeoCard>
                             ))}
                         </div>
