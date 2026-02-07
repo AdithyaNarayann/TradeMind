@@ -136,15 +136,15 @@ export default function JuryDashboard() {
   return (
     <Layout>
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="bg-neo-cream border-b-[3px] border-neo-navy">
+      <div className="bg-neo-navy border-b-[3px] border-neo-navy">
         <div className="container mx-auto px-4">
           <div className="max-w-6xl mx-auto flex items-center justify-between py-4">
-            <h1 className="text-xl sm:text-2xl font-heading font-bold text-neo-navy">
+            <h1 className="text-xl sm:text-2xl font-heading font-bold text-neo-cream">
               Dashboard
             </h1>
             <div className="flex items-center gap-3">
               {lastRefresh && (
-                <span className="text-[10px] text-neo-navy/30 font-mono hidden sm:block">
+                <span className="text-[10px] text-neo-cream/40 font-mono hidden sm:block">
                   {lastRefresh.toLocaleTimeString()}
                 </span>
               )}

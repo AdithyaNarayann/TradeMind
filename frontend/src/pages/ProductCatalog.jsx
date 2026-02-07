@@ -4,7 +4,7 @@ import {
     DollarSign, TrendingUp, TrendingDown, Settings, AlertCircle, Check,
     BarChart3, Loader2, ArrowRight,
     IndianRupee, Target, Zap, ShoppingCart, Percent, Activity,
-    PieChart, Award
+    PieChart, Award, ChevronDown, ChevronUp, Eye, Gauge
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
@@ -13,6 +13,66 @@ import {
     getProducts, createProduct, updateProduct, deleteProduct, importFromCSV,
     getProductStats
 } from '../lib/productStore';
+
+// ── Opportunity Score Calculation ──────────────────────────────────────────
+// Composite score (0-100) based on product profitability, pricing position,
+// negotiation buffer, deal performance, and strategy configuration.
+function computeOpportunityScore(product) {
+    const { basePrice, costPrice, minAcceptablePrice, maxLossPercent, mode, maxRounds, stats } = product;
+    let score = 0;
+    let factors = [];
+
+    // 1. Margin Score (0-25): Higher margins = more room to negotiate
+    const margin = basePrice > 0 ? ((basePrice - costPrice) / basePrice) * 100 : 0;
+    const marginScore = Math.min(25, (margin / 60) * 25); // 60%+ margin = full 25
+    score += marginScore;
+    factors.push({ label: 'Margin', value: margin.toFixed(1) + '%', points: marginScore.toFixed(1) });
+
+    // 2. Negotiation Buffer Score (0-20): Room between base and min
+    const buffer = basePrice > 0 ? ((basePrice - minAcceptablePrice) / basePrice) * 100 : 0;
+    const bufferScore = Math.min(20, (buffer / 50) * 20); // 50%+ buffer = full 20
+    score += bufferScore;
+    factors.push({ label: 'Buffer', value: buffer.toFixed(1) + '%', points: bufferScore.toFixed(1) });
+
+    // 3. Markup Score (0-15): Cost-based profitability indicator
+    const markup = costPrice > 0 ? ((basePrice - costPrice) / costPrice) * 100 : 0;
+    const markupScore = Math.min(15, (markup / 150) * 15); // 150%+ markup = full 15
+    score += markupScore;
+    factors.push({ label: 'Markup', value: markup.toFixed(0) + '%', points: markupScore.toFixed(1) });
+
+    // 4. Deal Performance Score (0-20): Accept rate & deal volume
+    const acceptRate = stats.totalSessions > 0 ? (stats.acceptedDeals / stats.totalSessions) * 100 : 50; // Neutral 50% if no data
+    const dealScore = Math.min(20, (acceptRate / 80) * 20); // 80%+ accept = full 20
+    score += dealScore;
+    factors.push({ label: 'Deal Rate', value: stats.totalSessions > 0 ? acceptRate.toFixed(0) + '%' : 'New', points: dealScore.toFixed(1) });
+
+    // 5. Strategy Efficiency (0-10): Based on rounds config & loss tolerance
+    const roundEfficiency = maxRounds >= 5 && maxRounds <= 15 ? 7 : maxRounds < 5 ? 3 : 5;
+    const lossBonus = maxLossPercent <= 5 ? 3 : maxLossPercent <= 15 ? 2 : 0;
+    const stratScore = roundEfficiency + lossBonus;
+    score += stratScore;
+    factors.push({ label: 'Strategy', value: mode === 'MAX_PROFIT' ? 'Profit' : 'Loss Min', points: stratScore.toFixed(1) });
+
+    // 6. Volume Bonus (0-10): More sessions = proven product
+    const volumeBonus = Math.min(10, stats.totalSessions * 1.5);
+    score += volumeBonus;
+    factors.push({ label: 'Volume', value: stats.totalSessions + ' sessions', points: volumeBonus.toFixed(1) });
+
+    return { score: Math.min(100, Math.round(score)), factors };
+}
+
+function getScoreColor(score) {
+    if (score >= 75) return { bg: 'bg-neo-teal', text: 'text-neo-teal', label: 'Excellent', border: 'border-neo-teal' };
+    if (score >= 55) return { bg: 'bg-neo-orange', text: 'text-neo-orange', label: 'Good', border: 'border-neo-orange' };
+    if (score >= 35) return { bg: 'bg-yellow-500', text: 'text-yellow-600', label: 'Fair', border: 'border-yellow-500' };
+    return { bg: 'bg-neo-maroon', text: 'text-neo-maroon', label: 'Low', border: 'border-neo-maroon' };
+}
+
+function getAverageOpportunityScore(products) {
+    if (products.length === 0) return 0;
+    const total = products.reduce((sum, p) => sum + computeOpportunityScore(p).score, 0);
+    return Math.round(total / products.length);
+}
 
 export default function ProductCatalog() {
     const fileInputRef = useRef(null);
@@ -26,6 +86,11 @@ export default function ProductCatalog() {
     const [analyticsOpen, setAnalyticsOpen] = useState(null); // product id or null
     const [liveStats, setLiveStats] = useState(null);
     const [statsLoading, setStatsLoading] = useState(false);
+    const [scoreDetailOpen, setScoreDetailOpen] = useState(null); // product id
+
+    // Sort state for table
+    const [sortField, setSortField] = useState('name');
+    const [sortDir, setSortDir] = useState('asc');
 
     // Form state
     const [form, setForm] = useState({
@@ -140,7 +205,36 @@ export default function ProductCatalog() {
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(p.id).toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    ).sort((a, b) => {
+        let va, vb;
+        if (sortField === 'score') {
+            va = computeOpportunityScore(a).score;
+            vb = computeOpportunityScore(b).score;
+        } else if (sortField === 'margin') {
+            va = a.basePrice > 0 ? ((a.basePrice - a.costPrice) / a.basePrice) * 100 : 0;
+            vb = b.basePrice > 0 ? ((b.basePrice - b.costPrice) / b.basePrice) * 100 : 0;
+        } else if (sortField === 'sessions') {
+            va = a.stats.totalSessions;
+            vb = b.stats.totalSessions;
+        } else {
+            va = a[sortField] ?? '';
+            vb = b[sortField] ?? '';
+        }
+        if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+        return sortDir === 'asc' ? va - vb : vb - va;
+    });
+
+    const toggleSort = (field) => {
+        if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortField(field); setSortDir('desc'); }
+    };
+
+    const SortIcon = ({ field }) => {
+        if (sortField !== field) return <ChevronDown className="w-3 h-3 opacity-20" />;
+        return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-neo-orange" /> : <ChevronDown className="w-3 h-3 text-neo-orange" />;
+    };
+
+    const avgScore = getAverageOpportunityScore(products);
 
     // ── Render ─────────────────────────────────────────────────────────────
 
