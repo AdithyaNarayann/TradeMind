@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
-  Shield, Lock, Upload, CheckCircle, AlertCircle,
+  Plus, Cpu, Upload, CheckCircle, AlertCircle,
   ExternalLink, ArrowLeft, FileText, AlertTriangle, Zap, X
 } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -17,7 +17,7 @@ export default function Report() {
   const { sessionId: storedSessionId, walletAddress: storedWallet, saveSession } = useSession();
   const { sessionId: paramSessionId } = useParams();
   const [searchParams] = useSearchParams();
-  
+
   // Priority: URL param > query param > stored session
   const sessionId = paramSessionId || searchParams.get('session') || storedSessionId;
 
@@ -121,7 +121,7 @@ export default function Report() {
     try {
       setStatus('encrypting');
       setError(null);
-      
+
       // Encrypt report and files (this is fast, no artificial delay needed)
       const encryptedReport = encryptWithNaCl(text);
       const encryptedFiles = await Promise.all(files.map(f => encryptFile(f)));
@@ -132,11 +132,11 @@ export default function Report() {
         files: encryptedFiles,
         timestamp: Date.now()
       };
-      
+
       // Submit to backend (this will show loading state naturally)
       setStatus('submitting');
       const data = await submitReport(sessionId, payload);
-      
+
       if (data.success) {
         setResult(data);
         setStatus('done');
@@ -338,7 +338,7 @@ export default function Report() {
             </div>
             <NeoCard className="p-3 bg-neo-teal border-neo-teal">
               <div className="flex items-center gap-2 text-neo-cream">
-                <Shield className="w-5 h-5" />
+                <Cpu className="w-5 h-5" />
                 <span className="text-sm font-bold">{t('report.endToEndEncrypted')}</span>
               </div>
             </NeoCard>
@@ -460,18 +460,18 @@ export default function Report() {
                       id="file-upload"
                       disabled={status === 'encrypting' || status === 'submitting'}
                     />
-                    <div 
-                      className="cursor-pointer" 
+                    <div
+                      className="cursor-pointer"
                       onClick={() => {
                         if (fileInputRef.current && status !== 'encrypting' && status !== 'submitting') {
                           fileInputRef.current.click();
                         }
                       }}
                     >
-                      <NeoButton 
-                        variant="teal" 
-                        size="sm" 
-                        type="button" 
+                      <NeoButton
+                        variant="teal"
+                        size="sm"
+                        type="button"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -541,7 +541,7 @@ export default function Report() {
               <NeoCard variant="navy" className="p-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-neo-orange flex items-center justify-center">
-                    <Shield className="w-5 h-5 text-neo-navy" />
+                    <Cpu className="w-5 h-5 text-neo-navy" />
                   </div>
                   <h3 className="font-heading font-bold text-neo-cream">{t('report.yourSafety')}</h3>
                 </div>

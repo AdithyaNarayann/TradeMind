@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  FileText, Radio, Award, Coins, Hash, TrendingUp, Shield,
+  Plus, Play, BarChart3, Code, Hash, TrendingUp, Cpu,
   Copy, Check, ArrowRight, Clock, CheckCircle, XCircle, Zap, Loader2
 } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -29,13 +29,13 @@ export default function ReporterHome() {
     async function loadData() {
       // Wait for session context to load
       if (sessionLoading) return;
-      
+
       try {
         const wallet = walletAddress;
-        
-        // If no wallet/session, user needs to generate one via Twilio chatbot
+
+        // If no wallet/session, user needs to create one
         if (!wallet) {
-          console.log('No wallet found - user needs to generate session via WhatsApp');
+          console.log('No wallet found - user needs to create a new session');
           setLoading(false);
           return;
         }
@@ -102,18 +102,18 @@ export default function ReporterHome() {
         <div className="min-h-[80vh] flex items-center justify-center p-4 bg-neo-navy">
           <NeoCard className="p-8 text-center max-w-md">
             <div className="w-20 h-20 bg-neo-teal border-[3px] border-neo-navy flex items-center justify-center mx-auto mb-6">
-              <Shield className="w-10 h-10 text-neo-cream" />
+              <TrendingUp className="w-10 h-10 text-neo-cream" />
             </div>
-            <h2 className="text-3xl font-heading font-bold mb-2 text-neo-navy">No Active Session</h2>
+            <h2 className="text-3xl font-heading font-bold mb-2 text-neo-navy">Welcome to Trade Mind</h2>
             <p className="text-neo-navy/70 mb-6">
-              To submit anonymous reports, you need to generate a secure session via our WhatsApp chatbot.
+              Start your first negotiation session to begin using the AI-powered pricing engine.
             </p>
             <NeoCard variant="teal" className="p-4 mb-6 text-left">
               <p className="text-neo-cream text-sm font-bold mb-2">How to get started:</p>
               <ol className="text-neo-cream/80 text-sm space-y-2">
-                <li>1. Message our WhatsApp chatbot</li>
-                <li>2. Request a new report session</li>
-                <li>3. Click the link you receive</li>
+                <li>1. Create a new negotiation session</li>
+                <li>2. Define your product and pricing rules</li>
+                <li>3. Let Trade Mind handle negotiations</li>
               </ol>
             </NeoCard>
             <Link to="/">
@@ -209,7 +209,7 @@ export default function ReporterHome() {
                     <NeoCard variant="orange" hover className="p-4 sm:p-6 h-full">
                       <div className="flex flex-col h-full">
                         <div className="w-10 h-10 sm:w-14 sm:h-14 bg-neo-navy border-[2px] sm:border-[3px] border-neo-navy flex items-center justify-center mb-3 sm:mb-4">
-                          <FileText className="w-5 h-5 sm:w-7 sm:h-7 text-neo-cream" />
+                          <Plus className="w-5 h-5 sm:w-7 sm:h-7 text-neo-cream" />
                         </div>
                         <h3 className="text-lg sm:text-xl font-heading font-bold text-neo-navy mb-1 sm:mb-2">{t('reporterHome.createReport.title')}</h3>
                         <p className="text-xs sm:text-sm text-neo-navy/70 mb-3 sm:mb-4 flex-grow">{t('reporterHome.createReport.description')}</p>
@@ -225,7 +225,7 @@ export default function ReporterHome() {
                     <NeoCard variant="teal" hover className="p-4 sm:p-6 h-full">
                       <div className="flex flex-col h-full">
                         <div className="w-10 h-10 sm:w-14 sm:h-14 bg-neo-cream border-[2px] sm:border-[3px] border-neo-navy flex items-center justify-center mb-3 sm:mb-4">
-                          <Radio className="w-5 h-5 sm:w-7 sm:h-7 text-neo-navy" />
+                          <Play className="w-5 h-5 sm:w-7 sm:h-7 text-neo-navy" />
                         </div>
                         <h3 className="text-lg sm:text-xl font-heading font-bold text-neo-cream mb-1 sm:mb-2">{t('reporterHome.silentReport.title')}</h3>
                         <p className="text-xs sm:text-sm text-neo-cream/80 mb-3 sm:mb-4 flex-grow">{t('reporterHome.silentReport.description')}</p>
@@ -237,11 +237,11 @@ export default function ReporterHome() {
                   </Link>
 
                   {/* Reputation */}
-                  <Link to="/reputation">
+                  <Link to="/authority">
                     <NeoCard hover className="p-4 sm:p-6 h-full">
                       <div className="flex flex-col h-full">
                         <div className="w-10 h-10 sm:w-14 sm:h-14 bg-neo-teal border-[2px] sm:border-[3px] border-neo-navy flex items-center justify-center mb-3 sm:mb-4">
-                          <Shield className="w-5 h-5 sm:w-7 sm:h-7 text-neo-cream" />
+                          <BarChart3 className="w-5 h-5 sm:w-7 sm:h-7 text-neo-cream" />
                         </div>
                         <h3 className="text-lg sm:text-xl font-heading font-bold text-neo-navy mb-1 sm:mb-2">{t('reporterHome.myReputation.title')}</h3>
                         <p className="text-xs sm:text-sm text-neo-navy/70 mb-3 sm:mb-4 flex-grow">{t('reporterHome.myReputation.description')}</p>
@@ -257,7 +257,7 @@ export default function ReporterHome() {
                     <NeoCard hover className="p-4 sm:p-6 h-full">
                       <div className="flex flex-col h-full">
                         <div className="w-10 h-10 sm:w-14 sm:h-14 bg-neo-orange border-[2px] sm:border-[3px] border-neo-navy flex items-center justify-center mb-3 sm:mb-4">
-                          <Award className="w-5 h-5 sm:w-7 sm:h-7 text-neo-navy" />
+                          <Code className="w-5 h-5 sm:w-7 sm:h-7 text-neo-navy" />
                         </div>
                         <h3 className="text-lg sm:text-xl font-heading font-bold text-neo-navy mb-1 sm:mb-2">{t('reporterHome.rewards.title')}</h3>
                         <p className="text-xs sm:text-sm text-neo-navy/70 mb-3 sm:mb-4 flex-grow">{t('reporterHome.rewards.description')}</p>
@@ -330,7 +330,7 @@ export default function ReporterHome() {
             <NeoCard variant="maroon" className="p-4 sm:p-6 mt-6 sm:mt-8">
               <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-neo-cream border-[2px] sm:border-[3px] border-neo-cream flex items-center justify-center flex-shrink-0">
-                  <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-neo-maroon" />
+                  <Cpu className="w-5 h-5 sm:w-6 sm:h-6 text-neo-maroon" />
                 </div>
                 <div>
                   <h4 className="font-heading font-bold text-neo-cream mb-1 sm:mb-2 text-sm sm:text-base">{t('reporterHome.privacyProtected')}</h4>

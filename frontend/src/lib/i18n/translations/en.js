@@ -1,27 +1,40 @@
-// English translations
+// English translations for Trade Mind
 const en = {
     // Common
     common: {
         home: 'Home',
-        reporter: 'Reporter',
-        authority: 'Authority',
-        jury: 'Jury',
-        wallet: 'Wallet',
+        dashboard: 'Dashboard',
+        product: 'Product',
+        howItWorks: 'How It Works',
+        pricing: 'Pricing',
+        docs: 'Docs',
         back: 'Back',
         cancel: 'Cancel',
         submit: 'Submit',
         reset: 'Reset',
         close: 'Close',
         loading: 'Loading...',
+        active: 'Active',
+        accepted: 'Accepted',
+        rejected: 'Rejected',
+        expired: 'Expired',
+        session: 'Session',
+        sessions: 'Sessions',
+        negotiations: 'Negotiations',
+        analytics: 'Analytics',
+        strategies: 'Strategies',
+        apiUsage: 'API Usage',
+        reporter: 'Dashboard',
+        authority: 'Analytics',
+        jury: 'Strategies',
+        wallet: 'API',
         verified: 'Verified',
         pending: 'Pending',
-        rejected: 'Rejected',
-        session: 'Session',
         encrypted: 'Encrypted',
-        reports: 'Reports',
-        stakeUsed: 'Stake Used',
-        reputation: 'Reputation',
-        pendingRewards: 'Pending Rewards',
+        reports: 'Sessions',
+        stakeUsed: 'Profit',
+        reputation: 'Success Rate',
+        pendingRewards: 'Avg Margin',
     },
 
     // Language Selection Modal
@@ -36,143 +49,145 @@ const en = {
     // Navbar
     navbar: {
         home: 'Home',
-        reporter: 'Reporter',
-        authority: 'Authority',
-        jury: 'Jury',
-        wallet: 'Wallet',
+        reporter: 'Dashboard',
+        authority: 'Analytics',
+        jury: 'Strategies',
+        wallet: 'API',
     },
 
     // Landing Page
     landing: {
-        badge: 'End-to-End Encrypted',
-        sayLess: 'SAY LESS',
-        tagline: 'Report Without Speaking',
-        description: 'The anonymous crime reporting protocol. Your report is encrypted in your browser before it ever leaves your device.',
-        evenWeCantRead: 'Even we cannot read it.',
-        startReporting: 'Start Reporting',
-        whatsApp: 'WhatsApp',
-        secureReport: 'SECURE REPORT',
+        badge: 'Profit-Aware AI',
+        tradeMind: 'TRADE MIND',
+        tagline: 'Negotiate Prices. Protect Margins. Close Better Deals.',
+        description: 'Trade Mind is a profit-aware negotiation engine that negotiates prices on behalf of sellers while never violating business constraints. It maximizes profit when possible — and minimizes loss when it isn\'t.',
+        notAChatbot: 'Not a chatbot. Not random discounts. Real business logic.',
+        buyAccess: 'Buy Access',
+        viewApiDocs: 'View API Docs',
+        startReporting: 'Buy Access',
+        whatsApp: 'View API Docs',
+        secureReport: 'TRADE MIND',
 
         // Stats
         stats: {
-            anonymous: 'Anonymous',
-            encrypted: 'Encrypted',
-            available: 'Available',
-            zeroData: 'Data Stored',
+            anonymous: 'Rule-Based',
+            encrypted: 'Decision Engine',
+            available: 'Negotiation',
+            zeroData: 'Guesswork',
         },
 
-        // Role Cards
+        // Role Cards (now Feature Cards)
         roleCards: {
-            chooseYourPath: 'Choose Your Path',
-            threeRolesOneMission: 'Three Roles, One Mission',
-            enterDashboard: 'Enter Dashboard',
+            chooseYourPath: 'What Trade Mind Does',
+            threeRolesOneMission: 'Intelligent Negotiation Infrastructure',
+            enterDashboard: 'Learn More',
             reporter: {
-                title: 'Reporter',
-                description: 'Submit anonymous crime reports with full encryption. Your identity is protected by cryptography.',
+                title: 'MAX_PROFIT Mode',
+                description: 'Conservative concessions. Walks away if margins are threatened. Designed for healthy demand.',
             },
             authority: {
-                title: 'Authority',
-                description: 'Review and verify encrypted reports. Decrypt content securely and take action.',
+                title: 'MIN_LOSS Mode',
+                description: 'Controlled flexibility. Targets break-even first. Designed for clearance or slow-moving inventory.',
             },
             jury: {
-                title: 'Jury',
-                description: 'Participate in dispute resolution. Vote on contested reports using reputation-weighted governance.',
+                title: 'Deep Analytics',
+                description: 'Every negotiation returns: final price, profit/loss, concessions used, efficiency score.',
             },
         },
 
         // Features Section
         features: {
-            securityFirst: 'Security First',
-            builtForZeroTrust: 'Built for Zero Trust',
-            privacyPriority: 'Every layer of SAYLESS is designed with your privacy as the top priority.',
-            clientSideEncryption: 'Client-Side Encryption',
-            clientSideEncryptionDesc: 'Reports are encrypted using NaCl cryptography in your browser before transmission.',
-            sessionBasedIdentity: 'Session-Based Identity',
-            sessionBasedIdentityDesc: 'No accounts, no logins. Each session generates a unique, untraceable identifier.',
-            ipfsBlockchain: 'IPFS + Blockchain',
-            ipfsBlockchainDesc: 'Encrypted data stored on IPFS. Proof of existence recorded on Ethereum.',
-            authorityOnlyDecryption: 'Authority-Only Decryption',
-            authorityOnlyDecryptionDesc: 'Only designated authorities hold the keys to decrypt submitted reports.',
+            securityFirst: 'Built for Developers',
+            builtForZeroTrust: 'API-First Architecture',
+            privacyPriority: 'Every layer of Trade Mind is designed for seamless integration and full auditability.',
+            clientSideEncryption: 'API-First SaaS',
+            clientSideEncryptionDesc: 'RESTful API with session-based negotiation. Easy integration with any platform.',
+            sessionBasedIdentity: 'Multi-Agent Architecture',
+            sessionBasedIdentityDesc: 'Context, Pricing, and Conversation agents work together for optimal outcomes.',
+            ipfsBlockchain: 'Fully Auditable',
+            ipfsBlockchainDesc: 'Every decision is traceable. Know exactly why each price was offered.',
+            authorityOnlyDecryption: 'Rate-Limited & Secure',
+            authorityOnlyDecryptionDesc: 'Built-in rate limiting, session management, and constraint enforcement.',
         },
 
         // How it Works
         howItWorks: {
-            simpleProcess: 'Simple Process',
-            title: 'How It Works',
-            step1Title: 'Send "REPORT" on WhatsApp',
-            step1Desc: 'Message our WhatsApp number. Receive a secure, one-time link instantly.',
-            step2Title: 'Write Your Report',
-            step2Desc: 'Open the link. Describe the incident. Everything encrypts before leaving your device.',
-            step3Title: 'Stored Securely',
-            step3Desc: 'Encrypted report goes to IPFS. Cryptographic proof recorded on Ethereum blockchain.',
-            step4Title: 'Get Rewarded',
-            step4Desc: 'Verified reports earn ETH rewards to your anonymous wallet.',
+            simpleProcess: 'How It Works',
+            title: 'Four Steps to Smarter Negotiation',
+            step1Title: 'You Define the Rules',
+            step1Desc: 'Set base price, cost price, minimum acceptable price, inventory pressure, and mode. These rules never change mid-negotiation.',
+            step2Title: 'Buyers Negotiate',
+            step2Desc: 'Buyers send offers through chat widgets, e-commerce platforms, or direct API calls. Trade Mind handles multi-round negotiations.',
+            step3Title: 'AI Decides (Deterministically)',
+            step3Desc: 'Context Agent sets strategy. Pricing Agent decides accept/counter/reject. Conversation Agent explains decisions. LLMs never decide prices.',
+            step4Title: 'You See the Outcome',
+            step4Desc: 'Every negotiation returns: final price vs starting price, profit or loss, concessions used, efficiency score.',
         },
 
         // CTA Section
         cta: {
-            readyToReport: 'Ready to Report?',
-            safetyPriority: 'Your safety is our priority. Start your anonymous report now.',
-            createAnonymousReport: 'Create Anonymous Report',
-            authorityLogin: 'Authority Login',
+            readyToReport: 'Ready to Negotiate Smarter?',
+            safetyPriority: 'Stop guessing prices. Let Trade Mind handle negotiation — within your rules.',
+            createAnonymousReport: 'Buy Trade Mind Access',
+            authorityLogin: 'Read Documentation',
         },
     },
 
-    // Reporter Home
+    // Reporter Home (now Dashboard)
     reporterHome: {
-        title: 'Reporter Dashboard',
-        subtitle: 'Your anonymous identity. Submit reports and earn rewards.',
+        title: 'Trade Mind Dashboard',
+        subtitle: 'Active Negotiations & Insights',
         quickActions: 'Quick Actions',
 
         // Cards
         createReport: {
-            title: 'Create Report',
-            description: 'Submit an encrypted crime report with evidence',
-            action: 'Start Now',
+            title: 'New Negotiation',
+            description: 'Start a new negotiation session with your product',
+            action: 'Create Session',
         },
         silentReport: {
-            title: 'Silent Report',
-            description: 'Morse-code style tap reporting for emergencies',
+            title: 'Live Negotiation',
+            description: 'Simulate buyer offers and see AI responses in real-time',
             action: 'Start Now',
         },
         myReputation: {
-            title: 'My Reputation',
-            description: 'View your anonymous identity and score',
-            action: 'View Profile',
+            title: 'Analytics',
+            description: 'View pricing journey and profit metrics',
+            action: 'View Analytics',
         },
         rewards: {
-            title: 'Rewards',
-            description: 'Check earnings and claim pending rewards',
-            action: 'View Wallet',
+            title: 'API Usage',
+            description: 'Monitor API health and usage statistics',
+            action: 'View API',
         },
 
         // Recent Reports
-        recentReports: 'Recent Reports',
-        viewAllReports: 'View All Reports →',
-        category: 'Category',
+        recentReports: 'Recent Negotiations',
+        viewAllReports: 'View All Sessions →',
+        category: 'Product',
 
         // Quick Tips
-        earnMore: 'Earn More',
-        tip1: 'Higher severity = higher rewards',
-        tip2: 'Include evidence for verification',
-        tip3: 'Build reputation for weight bonuses',
+        earnMore: 'Pro Tips',
+        tip1: 'Set realistic min_acceptable_price',
+        tip2: 'Use MAX_PROFIT for high-demand items',
+        tip3: 'Use MIN_LOSS for clearance inventory',
 
         // Privacy Banner
-        privacyProtected: 'Your Privacy is Protected',
-        privacyMessage: 'Your session ID is temporary and cannot be linked to your real identity. All reports are encrypted end-to-end in your browser before transmission. Even we cannot read your reports.',
+        privacyProtected: 'How Trade Mind Works',
+        privacyMessage: 'Trade Mind never invents prices. It never violates constraints. It never chases bad deals. It never discounts blindly. Every decision is deterministic and auditable.',
     },
 
-    // Report Page
+    // Report Page (now Create Negotiation)
     report: {
-        title: 'Create Report',
+        title: 'Create Negotiation Session',
         backToDashboard: 'Back to Dashboard',
-        endToEndEncrypted: 'End-to-End Encrypted',
+        endToEndEncrypted: 'API-Powered',
 
-        // Categories
-        crimeCategory: 'Crime Category',
+        // Categories (now Product fields)
+        crimeCategory: 'Product Information',
         categories: {
-            theft: 'Theft / Robbery',
-            assault: 'Assault / Violence',
+            theft: 'Electronics',
+            assault: 'Clothing',
             fraud: 'Fraud / Scam',
             corruption: 'Corruption / Bribery',
             harassment: 'Harassment',
@@ -393,39 +408,39 @@ const en = {
         totalReports: 'Total Reports',
         accepted: 'Accepted',
         rejected: 'Rejected',
-        acceptanceRate: 'Acceptance Rate',
-        juryParticipation: 'Jury Participation',
-        totalVotes: 'Total Votes',
-        correct: 'Correct',
-        incorrect: 'Incorrect',
-        voteAccuracy: 'Vote Accuracy',
-        rewardsEarned: 'Rewards Earned',
-        penalties: 'Penalties',
+        acceptanceRate: 'Success Rate',
+        juryParticipation: 'Strategy Usage',
+        totalVotes: 'Total Sessions',
+        correct: 'Profitable',
+        incorrect: 'Loss',
+        voteAccuracy: 'Win Rate',
+        rewardsEarned: 'Total Profit',
+        penalties: 'Total Loss',
         recentActivity: 'Recent Activity',
         tiers: {
-            newcomer: 'Newcomer',
+            newcomer: 'Starter',
             regular: 'Regular',
-            trusted: 'Trusted',
+            trusted: 'Pro',
             expert: 'Expert',
-            guardian: 'Guardian',
+            guardian: 'Enterprise',
         },
     },
 
     // Footer
     footer: {
-        description: 'Anonymous crime reporting protocol. Your reports are encrypted and cannot be traced back to you.',
+        description: 'AI Negotiation Engine for Smarter Pricing. Trade Mind negotiates on behalf of sellers while protecting margins.',
         quickLinks: 'Quick Links',
-        startReporting: '→ Start Reporting',
-        authorityDashboard: '→ Authority Dashboard',
-        checkReputation: '→ Check Reputation',
+        startReporting: '→ Start Negotiating',
+        authorityDashboard: '→ View Dashboard',
+        checkReputation: '→ API Documentation',
         disclaimer: 'Disclaimer',
-        disclaimerText: 'This is a frontend-only demo for Project VEIL. No actual blockchain transactions or data storage occurs. All data is mocked using local state.',
-        copyright: '© 2026 SAYLESS Protocol • Built for Project VEIL',
+        disclaimerText: 'Trade Mind is an AI-powered negotiation engine. All pricing decisions are deterministic and based on seller-defined constraints.',
+        copyright: '© 2026 Trade Mind • Intelligent Negotiation Infrastructure',
     },
 
     // Alert Banner
     alertBanner: {
-        message: '⚠️ EVEN WE CANNOT READ YOUR REPORTS • FULLY ENCRYPTED • ANONYMOUS BY DESIGN • ',
+        message: '🤖 AI-POWERED • PROFIT-AWARE • CONSTRAINT-PROTECTED • FULLY AUDITABLE • ',
     },
 };
 

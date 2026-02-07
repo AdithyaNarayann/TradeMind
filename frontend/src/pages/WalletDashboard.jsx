@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Wallet, Copy, Check, ArrowUpRight, ArrowDownLeft,
-  Coins, Lock, Download, ExternalLink, TrendingUp, Shield, Loader2,
+  Coins, Lock, Download, ExternalLink, TrendingUp, Code, Loader2,
   AlertCircle, CheckCircle
 } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -33,7 +33,7 @@ export default function WalletDashboard() {
 
   useEffect(() => {
     if (sessionLoading) return;
-    
+
     // Redirect if no wallet
     const currentWallet = walletAddress || localStorage.getItem('walletAddress');
     if (!currentWallet) {
@@ -228,9 +228,9 @@ export default function WalletDashboard() {
               <div className="lg:col-span-2 space-y-6">
                 {/* Action Buttons */}
                 <div className="grid sm:grid-cols-3 gap-4">
-                  <NeoButton 
-                    variant="orange" 
-                    size="lg" 
+                  <NeoButton
+                    variant="orange"
+                    size="lg"
                     className="w-full"
                     onClick={handleStakeEth}
                     disabled={creatingSession || !wallet.fullAddress}
@@ -242,9 +242,9 @@ export default function WalletDashboard() {
                     )}
                     {creatingSession ? 'Creating...' : t('wallet.stakeEth')}
                   </NeoButton>
-                  <NeoButton 
-                    variant="teal" 
-                    size="lg" 
+                  <NeoButton
+                    variant="teal"
+                    size="lg"
                     className="w-full"
                     onClick={handleClaimRewards}
                     disabled={claimingRewards || !wallet.fullAddress || parseFloat(wallet.pendingRewards) <= 0}
@@ -256,9 +256,9 @@ export default function WalletDashboard() {
                     )}
                     {claimingRewards ? 'Claiming...' : t('wallet.claimRewards')}
                   </NeoButton>
-                  <NeoButton 
-                    variant="navy" 
-                    size="lg" 
+                  <NeoButton
+                    variant="navy"
+                    size="lg"
                     className="w-full"
                     onClick={handleExportKey}
                     disabled={!wallet.fullAddress}
@@ -278,7 +278,7 @@ export default function WalletDashboard() {
                       // Determine icon and colors based on transaction type
                       const isReward = tx.type === 'reward';
                       const isRejected = tx.type === 'penalty' || tx.status === 'rejected';
-                      
+
                       return (
                         <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-neo-cream/50">
                           <div className="flex items-center gap-4">
@@ -342,11 +342,11 @@ export default function WalletDashboard() {
                     const ethBalance = parseFloat(wallet.balances.eth) || 0;
                     const pendingRewards = parseFloat(wallet.pendingRewards) || 0;
                     const totalEth = ethBalance + pendingRewards;
-                    
+
                     // Exchange rate: 1 ETH = ₹302,841
                     const ETH_TO_INR = 302841;
                     const totalValueINR = totalEth * ETH_TO_INR;
-                    
+
                     // Format INR value with Indian number system (lakhs, crores)
                     const formatINR = (value) => {
                       if (value >= 10000000) {
@@ -362,7 +362,7 @@ export default function WalletDashboard() {
                         return `₹${value.toFixed(0)}`;
                       }
                     };
-                    
+
                     return (
                       <>
                         <p className="text-4xl font-heading font-bold text-neo-orange mb-1">
@@ -412,7 +412,7 @@ export default function WalletDashboard() {
                 {/* Security Note */}
                 <NeoCard variant="maroon" className="p-5">
                   <div className="flex items-center gap-3 mb-3">
-                    <Shield className="w-5 h-5 text-neo-cream" />
+                    <Code className="w-5 h-5 text-neo-cream" />
                     <h3 className="font-heading font-bold text-neo-cream">{t('wallet.security')}</h3>
                   </div>
                   <p className="text-neo-cream/80 text-sm">
@@ -428,8 +428,8 @@ export default function WalletDashboard() {
       {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-5">
-          <NeoCard 
-            variant={toast.type === 'success' ? 'teal' : 'maroon'} 
+          <NeoCard
+            variant={toast.type === 'success' ? 'teal' : 'maroon'}
             className="p-4 shadow-lg min-w-[300px]"
           >
             <div className="flex items-center gap-3">

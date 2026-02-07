@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Radio, ArrowLeft, Send, RotateCcw, HelpCircle, Shield, Fingerprint, AlertTriangle } from 'lucide-react';
+import { Play, ArrowLeft, Send, RotateCcw, HelpCircle, Cpu, Fingerprint, AlertTriangle } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
@@ -151,17 +151,17 @@ export default function SilentReport() {
       <section className="py-6 sm:py-10 bg-neo-cream">
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
-            
+
             {/* Instructions */}
             {showInstructions && (
               <NeoCard variant="navy" className="p-4 sm:p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 sm:w-10 sm:h-10 bg-neo-orange flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-neo-navy" />
+                    <Cpu className="w-4 h-4 sm:w-5 sm:h-5 text-neo-navy" />
                   </div>
                   <h3 className="font-heading font-bold text-neo-cream text-sm sm:text-lg">{t('silentReport.howItWorks')}</h3>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                   <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-neo-cream/10 border-l-[3px] border-neo-orange">
                     <span className="font-mono bg-neo-cream text-neo-navy px-2 sm:px-3 py-1 border-[2px] border-neo-navy text-lg sm:text-xl font-bold">•</span>
@@ -268,12 +268,11 @@ export default function SilentReport() {
                 </div>
                 <div>
                   <p className="text-[10px] sm:text-xs text-neo-navy/60 uppercase mb-2 font-bold">{t('silentReport.severity')}</p>
-                  <div className={`inline-flex items-center gap-2 px-3 py-2 border-[2px] font-bold text-xs sm:text-sm uppercase ${
-                    decodedSeverity === 'high' ? 'bg-neo-maroon border-neo-navy text-neo-cream' :
-                    decodedSeverity === 'medium' ? 'bg-neo-orange border-neo-navy text-neo-navy' :
-                    decodedSeverity === 'low' ? 'bg-neo-teal border-neo-navy text-neo-cream' :
-                    'bg-neo-cream border-neo-navy/30 text-neo-navy/50'
-                  }`}>
+                  <div className={`inline-flex items-center gap-2 px-3 py-2 border-[2px] font-bold text-xs sm:text-sm uppercase ${decodedSeverity === 'high' ? 'bg-neo-maroon border-neo-navy text-neo-cream' :
+                      decodedSeverity === 'medium' ? 'bg-neo-orange border-neo-navy text-neo-navy' :
+                        decodedSeverity === 'low' ? 'bg-neo-teal border-neo-navy text-neo-cream' :
+                          'bg-neo-cream border-neo-navy/30 text-neo-navy/50'
+                    }`}>
                     {decodedSeverity || t('silentReport.notDetected')}
                   </div>
                 </div>
@@ -300,7 +299,7 @@ export default function SilentReport() {
             {/* Privacy Note */}
             <NeoCard variant="teal" className="p-3 sm:p-4">
               <div className="flex items-start gap-3">
-                <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-neo-cream flex-shrink-0 mt-0.5" />
+                <Cpu className="w-4 h-4 sm:w-5 sm:h-5 text-neo-cream flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-bold text-neo-cream text-xs sm:text-sm mb-1">Zero-Knowledge Transmission</p>
                   <p className="text-neo-cream/70 text-[10px] sm:text-xs">

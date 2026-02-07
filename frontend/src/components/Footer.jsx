@@ -1,4 +1,4 @@
-import { Shield, Github, Twitter } from 'lucide-react';
+import { TrendingUp, Github, Twitter } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../context/I18nContext';
 
@@ -13,10 +13,10 @@ export default function Footer() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="bg-neo-orange border-[2px] border-neo-cream p-1.5">
-                <Shield className="w-5 h-5 text-neo-navy" />
+                <TrendingUp className="w-5 h-5 text-neo-navy" />
               </div>
               <span className="font-heading text-xl font-bold">
-                SAY<span className="text-neo-orange">LESS</span>
+                TRADE<span className="text-neo-orange">MIND</span>
               </span>
             </div>
             <p className="text-neo-cream/60 text-sm">
@@ -39,7 +39,7 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link to="/reputation" className="hover:text-neo-orange transition-colors">
+                <Link to="/wallet" className="hover:text-neo-orange transition-colors">
                   {t('footer.checkReputation')}
                 </Link>
               </li>

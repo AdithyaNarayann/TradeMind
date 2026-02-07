@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Shield, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
+  BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
   Clock, AlertTriangle, ExternalLink, Bot, FileText, Filter,
   Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User
 } from 'lucide-react';
@@ -125,7 +125,7 @@ export default function Authority() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
               <div className="neo-badge-teal text-xs sm:text-sm">
-                <Shield className="w-3 h-3 sm:w-4 sm:h-4" />
+                <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
                 {t('authority.badge')}
               </div>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-heading font-bold text-neo-cream">
@@ -178,7 +178,7 @@ export default function Authority() {
                     {t('authority.reports')}
                   </h2>
                 </div>
-                
+
                 {/* Filter Pills */}
                 <div className="p-1.5 sm:p-2 border-b-[2px] border-neo-navy/20 flex flex-wrap gap-1">
                   {['all', 'under_review', 'verified', 'rejected'].map((f) => (
@@ -277,7 +277,7 @@ export default function Authority() {
                       )}
                     </button>
                   </div>
-                  
+
                   {/* Actions in header */}
                   {selectedReport?.status === 'under_review' && decryptedData && !decryptedData.error && (
                     <div className="flex gap-1 sm:gap-2 p-2 sm:pr-3 border-t sm:border-t-0 border-neo-navy/30">
@@ -347,7 +347,7 @@ export default function Authority() {
                               <p className="font-bold text-neo-maroon text-xs sm:text-sm">{t('authority.reportRejected')}</p>
                             </div>
                           )}
-                          
+
                           {/* Reporter Info & Jury Verdict */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                             {/* Reporter Info */}
@@ -360,15 +360,14 @@ export default function Authority() {
                                 <span className="text-[10px] sm:text-sm text-neo-navy/70 font-mono truncate max-w-[100px] sm:max-w-[150px]">
                                   {selectedReport.reporterWallet ? `${selectedReport.reporterWallet.slice(0, 8)}...${selectedReport.reporterWallet.slice(-6)}` : 'Unknown'}
                                 </span>
-                                <span className={`font-bold text-sm sm:text-lg ${
-                                  selectedReport.reporterReputation >= 70 ? 'text-neo-teal' :
-                                  selectedReport.reporterReputation >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
-                                }`}>
+                                <span className={`font-bold text-sm sm:text-lg ${selectedReport.reporterReputation >= 70 ? 'text-neo-teal' :
+                                    selectedReport.reporterReputation >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
+                                  }`}>
                                   Rep: {selectedReport.reporterReputation || 50}
                                 </span>
                               </div>
                             </NeoCard>
-                            
+
                             {/* Jury Verdict */}
                             <NeoCard className="p-2 sm:p-4">
                               <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2">
@@ -405,7 +404,7 @@ export default function Authority() {
                               )}
                             </NeoCard>
                           </div>
-                          
+
                           {/* Decrypted Content */}
                           <div>
                             <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2">{t('authority.decryptedReport')}</p>
@@ -413,16 +412,15 @@ export default function Authority() {
                               <p className="whitespace-pre-wrap text-neo-navy text-xs sm:text-sm">{decryptedData.decrypted}</p>
                             </NeoCard>
                           </div>
-                          
+
                           {/* Quick AI Summary */}
                           {decryptedData.aiAnalysis && (
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                               <div className="p-2 sm:p-3 bg-neo-navy text-center">
                                 <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Possibility</p>
-                                <p className={`text-lg sm:text-2xl font-bold ${
-                                  decryptedData.aiAnalysis.possibilityScore >= 70 ? 'text-neo-teal' :
-                                  decryptedData.aiAnalysis.possibilityScore >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
-                                }`}>
+                                <p className={`text-lg sm:text-2xl font-bold ${decryptedData.aiAnalysis.possibilityScore >= 70 ? 'text-neo-teal' :
+                                    decryptedData.aiAnalysis.possibilityScore >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
+                                  }`}>
                                   {decryptedData.aiAnalysis.possibilityScore}%
                                 </p>
                               </div>
@@ -451,7 +449,7 @@ export default function Authority() {
                                   const isVideo = file.type?.startsWith('video/');
                                   // Find matching evidence analysis
                                   const analysis = decryptedData.evidenceAnalysis?.find(a => a.filename === file.filename);
-                                  
+
                                   return (
                                     <NeoCard key={index} className="p-3 overflow-hidden">
                                       {isImage && file.dataUrl ? (
@@ -464,17 +462,16 @@ export default function Authority() {
                                             />
                                             {/* AI Detection Badge */}
                                             {analysis && analysis.isAnalyzable && (
-                                              <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-bold uppercase border-[2px] ${
-                                                analysis.isAIGenerated 
-                                                  ? 'bg-neo-maroon text-neo-cream border-neo-maroon' 
+                                              <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-bold uppercase border-[2px] ${analysis.isAIGenerated
+                                                  ? 'bg-neo-maroon text-neo-cream border-neo-maroon'
                                                   : analysis.isValidEvidence === false
                                                     ? 'bg-neo-orange text-neo-navy border-neo-orange'
                                                     : 'bg-neo-teal text-neo-cream border-neo-teal'
-                                              }`}>
-                                                {analysis.isAIGenerated 
-                                                  ? '⚠️ AI GENERATED' 
-                                                  : analysis.isValidEvidence === false 
-                                                    ? '⚠️ INVALID' 
+                                                }`}>
+                                                {analysis.isAIGenerated
+                                                  ? '⚠️ AI GENERATED'
+                                                  : analysis.isValidEvidence === false
+                                                    ? '⚠️ INVALID'
                                                     : '✓ VALID'}
                                               </div>
                                             )}
@@ -484,13 +481,12 @@ export default function Authority() {
                                           </p>
                                           {/* AI Analysis Details */}
                                           {analysis && analysis.isAnalyzable && (
-                                            <div className={`p-2 text-xs border-l-4 ${
-                                              analysis.isAIGenerated 
-                                                ? 'bg-neo-maroon/10 border-neo-maroon' 
+                                            <div className={`p-2 text-xs border-l-4 ${analysis.isAIGenerated
+                                                ? 'bg-neo-maroon/10 border-neo-maroon'
                                                 : analysis.isValidEvidence === false
                                                   ? 'bg-neo-orange/10 border-neo-orange'
                                                   : 'bg-neo-teal/10 border-neo-teal'
-                                            }`}>
+                                              }`}>
                                               <div className="flex justify-between mb-1">
                                                 <span className="font-bold">Confidence:</span>
                                                 <span>{analysis.confidence}%</span>
@@ -573,7 +569,7 @@ export default function Authority() {
                             <div className="w-full h-4 bg-neo-navy/10 border border-neo-navy/20">
                               <div
                                 className={`h-full transition-all ${decryptedData.aiAnalysis.possibilityScore >= 70 ? 'bg-neo-teal' :
-                                    decryptedData.aiAnalysis.possibilityScore >= 40 ? 'bg-neo-orange' : 'bg-neo-maroon'
+                                  decryptedData.aiAnalysis.possibilityScore >= 40 ? 'bg-neo-orange' : 'bg-neo-maroon'
                                   }`}
                                 style={{ width: `${decryptedData.aiAnalysis.possibilityScore}%` }}
                               />
@@ -620,7 +616,7 @@ export default function Authority() {
 
                       {/* Sources Tab */}
                       {activeTab === 'sources' && hasWebContext && (
-                        <SourceNetwork 
+                        <SourceNetwork
                           webContext={decryptedData.webContext}
                           onChainHash={selectedReport?.txHash}
                         />

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, User, Scale, Wallet, Menu, X } from 'lucide-react';
+import { LayoutDashboard, BarChart3, Settings, Code, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../context/I18nContext';
 import LanguageSwitcher from './LanguageSwitcher';
@@ -12,10 +12,10 @@ export default function Navbar() {
 
   const navLinks = [
     { path: '/', label: t('navbar.home'), icon: null },
-    { path: '/reporter', label: t('navbar.reporter'), icon: User },
-    { path: '/authority', label: t('navbar.authority'), icon: Shield },
-    { path: '/jury', label: t('navbar.jury'), icon: Scale },
-    { path: '/wallet', label: t('navbar.wallet'), icon: Wallet },
+    { path: '/reporter', label: t('navbar.reporter'), icon: LayoutDashboard },
+    { path: '/authority', label: t('navbar.authority'), icon: BarChart3 },
+    { path: '/jury', label: t('navbar.jury'), icon: Settings },
+    { path: '/wallet', label: t('navbar.wallet'), icon: Code },
   ];
 
   return (
@@ -26,11 +26,11 @@ export default function Navbar() {
           <Link to="/" className="flex items-center gap-2">
             <img
               src={faviconSvg}
-              alt="SayLess Logo"
+              alt="Trade Mind Logo"
               className="w-10 h-10 sm:w-12 sm:h-12"
             />
             <span className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-neo-navy">
-              SAY<span className="text-neo-orange">LESS</span>
+              TRADE<span className="text-neo-orange">MIND</span>
             </span>
           </Link>
 

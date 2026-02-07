@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Shield, User, Scale, MessageSquare, Lock, Zap, Eye, ArrowRight, Fingerprint, Database } from 'lucide-react';
+import { TrendingUp, DollarSign, BarChart3, MessageSquare, Cpu, Zap, Target, ArrowRight, LineChart, Settings } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
@@ -13,7 +13,7 @@ export default function Landing() {
     {
       title: t('landing.roleCards.reporter.title'),
       description: t('landing.roleCards.reporter.description'),
-      icon: User,
+      icon: TrendingUp,
       color: 'bg-neo-teal',
       textLight: true,
       path: '/reporter',
@@ -22,7 +22,7 @@ export default function Landing() {
     {
       title: t('landing.roleCards.authority.title'),
       description: t('landing.roleCards.authority.description'),
-      icon: Shield,
+      icon: Target,
       color: 'bg-neo-orange',
       path: '/authority',
       number: '02',
@@ -30,7 +30,7 @@ export default function Landing() {
     {
       title: t('landing.roleCards.jury.title'),
       description: t('landing.roleCards.jury.description'),
-      icon: Scale,
+      icon: BarChart3,
       color: 'bg-neo-maroon',
       textLight: true,
       path: '/jury',
@@ -40,7 +40,7 @@ export default function Landing() {
 
   const stats = [
     { value: '100%', label: t('landing.stats.anonymous') },
-    { value: 'E2E', label: t('landing.stats.encrypted') },
+    { value: 'AI', label: t('landing.stats.encrypted') },
     { value: '24/7', label: t('landing.stats.available') },
     { value: 'Zero', label: t('landing.stats.zeroData') },
   ];
@@ -70,15 +70,15 @@ export default function Landing() {
             <div className="relative z-10">
               {/* Badge */}
               <div className="inline-flex items-center gap-2 neo-badge-teal mb-6">
-                <Lock className="w-4 h-4" />
+                <Cpu className="w-4 h-4" />
                 <span>{t('landing.badge')}</span>
               </div>
 
               {/* Main Heading */}
               <h1 className="text-7xl md:text-9xl font-heading font-bold mb-4 leading-none text-neo-navy">
-                SAY
+                TRADE
                 <span className="block text-neo-orange relative">
-                  LESS
+                  MIND
                   <svg className="absolute -bottom-2 left-0 w-full h-4" viewBox="0 0 200 20">
                     <path d="M0 10 Q50 0, 100 10 T200 10" stroke="#FF7D00" strokeWidth="4" fill="none" />
                   </svg>
@@ -91,29 +91,28 @@ export default function Landing() {
               </p>
 
               {/* Description */}
-              <p className="text-lg text-neo-navy/70 mb-8 max-w-md">
-                {t('landing.description')} <span className="font-bold text-neo-navy">{t('landing.evenWeCantRead')}</span>
+              <p className="text-lg text-neo-navy/70 mb-4 max-w-md">
+                {t('landing.description')}
+              </p>
+              <p className="text-lg font-bold text-neo-navy mb-8 max-w-md">
+                {t('landing.notAChatbot')}
               </p>
 
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link to="/reporter">
                   <NeoButton variant="orange" size="lg">
-                    <User className="w-5 h-5 mr-2" />
+                    <DollarSign className="w-5 h-5 mr-2" />
                     {t('landing.startReporting')}
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </NeoButton>
                 </Link>
-                <a
-                  href="https://wa.me/14155238886?text=REPORT"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <Link to="/authority">
                   <NeoButton variant="navy" size="lg">
-                    <MessageSquare className="w-5 h-5 mr-2" />
+                    <LineChart className="w-5 h-5 mr-2" />
                     {t('landing.whatsApp')}
                   </NeoButton>
-                </a>
+                </Link>
               </div>
             </div>
 
@@ -130,7 +129,7 @@ export default function Landing() {
                   <div>
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 bg-neo-navy flex items-center justify-center">
-                        <Shield className="w-6 h-6 text-neo-cream" />
+                        <TrendingUp className="w-6 h-6 text-neo-cream" />
                       </div>
                       <span className="font-heading font-bold text-xl text-neo-navy">{t('landing.secureReport')}</span>
                     </div>
@@ -141,10 +140,10 @@ export default function Landing() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-mono text-neo-navy/60">****-****-****</span>
+                    <span className="text-sm font-mono text-neo-navy/60">MAX_PROFIT</span>
                     <div className="neo-badge-navy">
-                      <Lock className="w-3 h-3 mr-1" />
-                      {t('common.encrypted').toUpperCase()}
+                      <Cpu className="w-3 h-3 mr-1" />
+                      AI-POWERED
                     </div>
                   </div>
                 </div>
@@ -243,7 +242,7 @@ export default function Landing() {
             <div className="md:w-2/3 grid sm:grid-cols-2 gap-4">
               <NeoCard className="p-6">
                 <div className="w-14 h-14 bg-neo-orange border-[3px] border-neo-navy flex items-center justify-center mb-4">
-                  <Lock className="w-7 h-7 text-neo-navy" />
+                  <Zap className="w-7 h-7 text-neo-navy" />
                 </div>
                 <h3 className="text-xl font-heading font-bold mb-2 text-neo-navy">{t('landing.features.clientSideEncryption')}</h3>
                 <p className="text-neo-navy/70 text-sm">
@@ -253,7 +252,7 @@ export default function Landing() {
 
               <NeoCard className="p-6">
                 <div className="w-14 h-14 bg-neo-navy border-[3px] border-neo-navy flex items-center justify-center mb-4">
-                  <Fingerprint className="w-7 h-7 text-neo-cream" />
+                  <Settings className="w-7 h-7 text-neo-cream" />
                 </div>
                 <h3 className="text-xl font-heading font-bold mb-2 text-neo-navy">{t('landing.features.sessionBasedIdentity')}</h3>
                 <p className="text-neo-navy/70 text-sm">
@@ -263,7 +262,7 @@ export default function Landing() {
 
               <NeoCard className="p-6">
                 <div className="w-14 h-14 bg-neo-maroon border-[3px] border-neo-navy flex items-center justify-center mb-4">
-                  <Database className="w-7 h-7 text-neo-cream" />
+                  <BarChart3 className="w-7 h-7 text-neo-cream" />
                 </div>
                 <h3 className="text-xl font-heading font-bold mb-2 text-neo-navy">{t('landing.features.ipfsBlockchain')}</h3>
                 <p className="text-neo-navy/70 text-sm">
@@ -273,7 +272,7 @@ export default function Landing() {
 
               <NeoCard className="p-6">
                 <div className="w-14 h-14 bg-neo-orange border-[3px] border-neo-navy flex items-center justify-center mb-4">
-                  <Eye className="w-7 h-7 text-neo-navy" />
+                  <Target className="w-7 h-7 text-neo-navy" />
                 </div>
                 <h3 className="text-xl font-heading font-bold mb-2 text-neo-navy">{t('landing.features.authorityOnlyDecryption')}</h3>
                 <p className="text-neo-navy/70 text-sm">
@@ -332,7 +331,7 @@ export default function Landing() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/reporter">
               <NeoButton variant="navy" size="lg">
-                <Shield className="w-5 h-5 mr-2" />
+                <DollarSign className="w-5 h-5 mr-2" />
                 {t('landing.cta.createAnonymousReport')}
               </NeoButton>
             </Link>

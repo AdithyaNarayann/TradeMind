@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Award, TrendingUp, TrendingDown, CheckCircle, XCircle, Info, Loader2, ArrowLeft, Star } from 'lucide-react';
+import { BarChart3, Award, TrendingUp, TrendingDown, CheckCircle, XCircle, Info, Loader2, ArrowLeft, Star } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
@@ -39,7 +39,7 @@ export default function ReputationPage() {
 
   useEffect(() => {
     if (sessionLoading) return;
-    
+
     const wallet = walletAddress || localStorage.getItem('walletAddress');
     if (!wallet) {
       navigate('/reporter');
@@ -65,11 +65,11 @@ export default function ReputationPage() {
     t => reputation.score >= t.min && reputation.score <= t.max
   ) || reputationTiers[0];
 
-  const acceptRate = reputation.totalReports > 0 
-    ? Math.round((reputation.acceptedReports / reputation.totalReports) * 100) 
+  const acceptRate = reputation.totalReports > 0
+    ? Math.round((reputation.acceptedReports / reputation.totalReports) * 100)
     : 0;
-  const voteAccuracy = reputation.juryVotes > 0 
-    ? Math.round((reputation.correctVotes / reputation.juryVotes) * 100) 
+  const voteAccuracy = reputation.juryVotes > 0
+    ? Math.round((reputation.correctVotes / reputation.juryVotes) * 100)
     : 0;
 
   if (loading) {
@@ -95,7 +95,7 @@ export default function ReputationPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <div className="neo-badge-teal mb-2 sm:mb-3 text-xs sm:text-sm">
-                  <Shield className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
                   Reputation System
                 </div>
                 <h1 className="text-2xl sm:text-3xl md:text-4xl font-heading font-bold text-neo-cream">
@@ -116,13 +116,13 @@ export default function ReputationPage() {
       <section className="py-6 sm:py-10 bg-neo-cream">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
-            
+
             {/* Identity Badge */}
             <NeoCard variant="navy" className="p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
                 <div className="flex items-center gap-3 sm:gap-4">
                   <div className="w-12 h-12 sm:w-16 sm:h-16 bg-neo-teal border-[2px] sm:border-[3px] border-neo-cream flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-neo-cream" />
+                    <BarChart3 className="w-6 h-6 sm:w-8 sm:h-8 text-neo-cream" />
                   </div>
                   <div>
                     <p className="text-[10px] sm:text-xs text-neo-cream/60 uppercase">{t('reputation.anonymousIdentity')}</p>
