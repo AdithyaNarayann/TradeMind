@@ -122,7 +122,7 @@ export default function Chat() {
                     // Update user message with extracted price
                     if (response.extracted_price) {
                         userMessage.meta.offeredPrice = parseFloat(response.extracted_price);
-                        setMessages(prev => prev.map(m => m.id === userMessage.id ? {...m, meta: {...m.meta, offeredPrice: parseFloat(response.extracted_price)}} : m));
+                        setMessages(prev => prev.map(m => m.id === userMessage.id ? { ...m, meta: { ...m.meta, offeredPrice: parseFloat(response.extracted_price) } } : m));
                     }
                 }
 
