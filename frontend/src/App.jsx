@@ -3,6 +3,7 @@ import { SessionProvider } from './context/SessionContext';
 import { I18nProvider } from './context/I18nContext';
 import LanguageModal from './components/LanguageModal';
 import TranslationLoadingOverlay from './components/TranslationLoadingOverlay';
+import Login from './pages/Login';
 import Landing from './pages/Landing';
 import ReporterHome from './pages/ReporterHome';
 import Report from './pages/Report';
@@ -20,6 +21,9 @@ function App() {
           <LanguageModal />
           <TranslationLoadingOverlay />
           <Routes>
+            {/* Login - Entry Point */}
+            <Route path="/login" element={<Login />} />
+
             {/* Landing */}
             <Route path="/" element={<Landing />} />
 
