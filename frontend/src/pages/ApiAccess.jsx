@@ -50,175 +50,74 @@ function getSnippet(lang, apiKey) {
 
     if (lang === 'Python') {
         return `import requests
-
 API_KEY = "${key}"
-BASE_URL = "${base}"
-
-headers = {
-    "Authorization": f"Bearer {API_KEY}",
-    "Content-Type": "application/json"
-}
-
-# ── Start a negotiation session ────────────────────────
-payload = {
+BASE = "${base}"
+H = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+# Create a negotiation session
+session = requests.post(f"{BASE}/api/v1/chat-sessions", json={
     "product_name": "Premium Widget",
-    "base_price": 100.0,
-    "cost_price": 40.0,
+    "base_price": 100.0, "cost_price": 40.0,
     "min_acceptable_price": 60.0,
-    "max_rounds": 10,
-    "strategy_mode": "MAX_PROFIT"
-}
-
-response = requests.post(
-    f"{BASE_URL}/api/v1/chat-sessions",
-    json=payload,
-    headers=headers
-)
-session = response.json()
-print("Session ID:", session["id"])
-
-# ── Send a buyer offer ─────────────────────────────────
-offer_payload = {
-    "user_message": "I'd like to buy this for $65",
-    "bot_reply": "",          # filled by negotiation engine
-    "buyer_offer": 65.0,
-    "seller_counter": None,
-    "round_number": 1
-}
-
-msg_response = requests.post(
-    f"{BASE_URL}/api/v1/chat-sessions/{session['id']}/messages",
-    json=offer_payload,
-    headers=headers
-)
-print("Bot reply:", msg_response.json())`;
+    "max_rounds": 10, "strategy_mode": "MAX_PROFIT"
+}, headers=H).json()
+print("Session:", session["id"])
+# Send a buyer offer
+reply = requests.post(f"{BASE}/api/v1/chat-sessions/{session['id']}/messages", json={
+    "user_message": "I'll pay $65", "bot_reply": "",
+    "buyer_offer": 65.0, "seller_counter": None, "round_number": 1
+}, headers=H).json()
+print("Reply:", reply)`;
     }
 
     if (lang === 'JavaScript') {
         return `const API_KEY = "${key}";
-const BASE_URL = "${base}";
-
-const headers = {
-  "Authorization": \`Bearer \${API_KEY}\`,
-  "Content-Type": "application/json"
-};
-
-// ── Start a negotiation session ────────────────────────
-async function startSession() {
-  const res = await fetch(\`\${BASE_URL}/api/v1/chat-sessions\`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      product_name: "Premium Widget",
-      base_price: 100.0,
-      cost_price: 40.0,
-      min_acceptable_price: 60.0,
-      max_rounds: 10,
-      strategy_mode: "MAX_PROFIT"
-    })
-  });
-  const session = await res.json();
-  console.log("Session ID:", session.id);
-  return session;
-}
-
-// ── Send a buyer offer ─────────────────────────────────
-async function sendOffer(sessionId, offer) {
-  const res = await fetch(
-    \`\${BASE_URL}/api/v1/chat-sessions/\${sessionId}/messages\`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        user_message: \`I'd like to buy this for $\${offer}\`,
-        bot_reply: "",
-        buyer_offer: offer,
-        seller_counter: null,
-        round_number: 1
-      })
-    }
-  );
-  return res.json();
-}
-
-startSession().then(s => sendOffer(s.id, 65));`;
+const BASE = "${base}";
+const headers = { Authorization: \`Bearer \${API_KEY}\`, "Content-Type": "application/json" };
+// Create a negotiation session
+const session = await fetch(\`\${BASE}/api/v1/chat-sessions\`, {
+  method: "POST", headers,
+  body: JSON.stringify({
+    product_name: "Premium Widget", base_price: 100, cost_price: 40,
+    min_acceptable_price: 60, max_rounds: 10, strategy_mode: "MAX_PROFIT"
+  })
+}).then(r => r.json());
+console.log("Session:", session.id);
+// Send a buyer offer
+const reply = await fetch(\`\${BASE}/api/v1/chat-sessions/\${session.id}/messages\`, {
+  method: "POST", headers,
+  body: JSON.stringify({
+    user_message: "I'll pay $65", bot_reply: "",
+    buyer_offer: 65, seller_counter: null, round_number: 1
+  })
+}).then(r => r.json());
+console.log("Reply:", reply);`;
     }
 
     // TypeScript
     return `const API_KEY: string = "${key}";
-const BASE_URL: string = "${base}";
-
-interface SessionPayload {
-  product_name: string;
-  base_price: number;
-  cost_price: number;
-  min_acceptable_price: number;
-  max_rounds: number;
-  strategy_mode: "MAX_PROFIT" | "MIN_LOSS";
-}
-
-interface MessagePayload {
-  user_message: string;
-  bot_reply: string;
-  buyer_offer: number;
-  seller_counter: number | null;
-  round_number: number;
-}
-
+const BASE: string = "${base}";
 const headers: Record<string, string> = {
-  "Authorization": \`Bearer \${API_KEY}\`,
-  "Content-Type": "application/json"
+  Authorization: \`Bearer \${API_KEY}\`, "Content-Type": "application/json"
 };
-
-// ── Start a negotiation session ────────────────────────
-async function startSession(): Promise<any> {
-  const payload: SessionPayload = {
-    product_name: "Premium Widget",
-    base_price: 100.0,
-    cost_price: 40.0,
-    min_acceptable_price: 60.0,
-    max_rounds: 10,
-    strategy_mode: "MAX_PROFIT"
-  };
-
-  const res = await fetch(\`\${BASE_URL}/api/v1/chat-sessions\`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
-  return res.json();
-}
-
-// ── Send a buyer offer ─────────────────────────────────
-async function sendOffer(
-  sessionId: number,
-  offer: number
-): Promise<any> {
-  const payload: MessagePayload = {
-    user_message: \`I'd like to buy this for $\${offer}\`,
-    bot_reply: "",
-    buyer_offer: offer,
-    seller_counter: null,
-    round_number: 1
-  };
-
-  const res = await fetch(
-    \`\${BASE_URL}/api/v1/chat-sessions/\${sessionId}/messages\`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload)
-    }
-  );
-  return res.json();
-}
-
-(async () => {
-  const session = await startSession();
-  console.log("Session:", session);
-  const reply = await sendOffer(session.id, 65);
-  console.log("Reply:", reply);
-})();`;
+// Create a negotiation session
+const session = await fetch(\`\${BASE}/api/v1/chat-sessions\`, {
+  method: "POST", headers,
+  body: JSON.stringify({
+    product_name: "Premium Widget", base_price: 100, cost_price: 40,
+    min_acceptable_price: 60, max_rounds: 10,
+    strategy_mode: "MAX_PROFIT" as "MAX_PROFIT" | "MIN_LOSS"
+  })
+}).then((r: Response) => r.json());
+console.log("Session:", session.id);
+// Send a buyer offer
+const reply = await fetch(\`\${BASE}/api/v1/chat-sessions/\${session.id}/messages\`, {
+  method: "POST", headers,
+  body: JSON.stringify({
+    user_message: "I'll pay $65", bot_reply: "",
+    buyer_offer: 65, seller_counter: null, round_number: 1
+  })
+}).then((r: Response) => r.json());
+console.log("Reply:", reply);`;
 }
 
 // ── Component ──────────────────────────────────────────────────────
@@ -453,110 +352,8 @@ export default function ApiAccess() {
                         </NeoCard>
                     </div>
 
-                    {/* ── Code Snippets — Full Width ─────────────────── */}
-                    <div className="mb-8">
-                        <NeoCard className="p-0 overflow-hidden">
-                            {/* Header bar with tabs */}
-                            <div className="bg-neo-navy flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <div className="flex items-center gap-2 px-5 py-3.5 border-r border-neo-cream/10">
-                                        <Terminal className="w-5 h-5 text-neo-orange" />
-                                        <span className="text-sm text-neo-cream font-heading font-bold tracking-wide">Quick Start Guide</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                        {LANGS.map(lang => {
-                                            const isActive = selectedLang === lang;
-                                            return (
-                                                <button
-                                                    key={lang}
-                                                    onClick={() => setSelectedLang(lang)}
-                                                    className={`
-                                                        relative px-5 py-3.5 text-xs font-bold uppercase tracking-wider transition-all
-                                                        ${isActive
-                                                            ? 'bg-neo-orange/15 text-neo-orange'
-                                                            : 'text-neo-cream/40 hover:text-neo-cream/70 hover:bg-neo-cream/5'
-                                                        }
-                                                    `}
-                                                >
-                                                    {lang}
-                                                    {isActive && (
-                                                        <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-neo-orange" />
-                                                    )}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={copySnippet}
-                                    className="mr-3 px-3 py-1.5 bg-neo-cream/10 hover:bg-neo-cream/20 text-neo-cream text-[11px] font-bold uppercase flex items-center gap-1.5 transition-colors border border-neo-cream/10"
-                                >
-                                    {copied === 'snippet' ? <><Check className="w-3.5 h-3.5 text-neo-teal" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Code</>}
-                                </button>
-                            </div>
-
-                            {/* Code block with line numbers */}
-                            <div className="relative bg-[#0a1628]">
-                                <div className="flex">
-                                    {/* Line numbers */}
-                                    <div className="flex-shrink-0 py-5 pl-4 pr-3 select-none border-r border-neo-cream/5">
-                                        {getSnippet(selectedLang, activeKey).split('\n').map((_, i) => (
-                                            <div key={i} className="text-[11px] leading-[1.7] text-neo-cream/15 font-mono text-right" style={{ minWidth: '24px' }}>
-                                                {i + 1}
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {/* Code content */}
-                                    <pre className="flex-1 py-5 px-5 overflow-x-auto max-h-[55vh]">
-                                        <code className="text-[12.5px] leading-[1.7] font-mono">
-                                            {getSnippet(selectedLang, activeKey).split('\n').map((line, i) => {
-                                                // Simple syntax highlighting
-                                                let colored = line;
-                                                // Comments
-                                                if (line.trimStart().startsWith('#') || line.trimStart().startsWith('//')) {
-                                                    return <div key={i} className="text-neo-teal/40">{line}</div>;
-                                                }
-                                                // Strings
-                                                if (/^(import |from |const |async |interface |type )/.test(line.trimStart())) {
-                                                    const keyword = line.match(/^\s*(import|from|const|async|interface|type|function|return|await)\b/);
-                                                    if (keyword) {
-                                                        const idx = line.indexOf(keyword[1]);
-                                                        return (
-                                                            <div key={i}>
-                                                                <span className="text-neo-cream/50">{line.slice(0, idx)}</span>
-                                                                <span className="text-neo-orange">{keyword[1]}</span>
-                                                                <span className="text-neo-cream/80">{line.slice(idx + keyword[1].length)}</span>
-                                                            </div>
-                                                        );
-                                                    }
-                                                }
-                                                return <div key={i} className="text-neo-cream/80">{line || '\u00A0'}</div>;
-                                            })}
-                                        </code>
-                                    </pre>
-                                </div>
-                            </div>
-
-                            {/* Active key indicator */}
-                            <div className="bg-[#0d1d33] px-5 py-2.5 flex items-center gap-3 border-t border-neo-cream/5">
-                                <Hash className="w-3.5 h-3.5 text-neo-cream/20" />
-                                <span className="text-[10px] text-neo-cream/30 font-bold uppercase tracking-wider">Using Key:</span>
-                                <code className="text-[11px] text-neo-orange/70 font-mono">
-                                    {activeKey ? activeKey.slice(0, 3) + '••••' + activeKey.slice(-8) : 'No key selected'}
-                                </code>
-                                {activeKey && (
-                                    <button
-                                        onClick={() => copyToClipboard(activeKey, 'active-key')}
-                                        className="text-neo-cream/20 hover:text-neo-cream/50 transition-colors ml-1"
-                                    >
-                                        {copied === 'active-key' ? <Check className="w-3 h-3 text-neo-teal" /> : <Copy className="w-3 h-3" />}
-                                    </button>
-                                )}
-                            </div>
-                        </NeoCard>
-                    </div>
-
                     {/* ── Endpoint Reference — Full Width Grid ───────── */}
+                    <div className="mb-8">
                     <NeoCard className="p-5">
                         <div className="flex items-center gap-2 mb-4">
                             <BookOpen className="w-4 h-4 text-neo-navy/40" />
@@ -585,6 +382,108 @@ export default function ApiAccess() {
                                     <p className="text-[10px] text-neo-navy/40">{ep.desc}</p>
                                 </div>
                             ))}
+                        </div>
+                    </NeoCard>
+                    </div>
+
+                    {/* ── Code Snippets — Full Width ─────────────────── */}
+                    <NeoCard className="p-0 overflow-hidden">
+                        {/* Header bar with tabs */}
+                        <div className="bg-neo-navy flex items-center justify-between">
+                            <div className="flex items-center">
+                                <div className="flex items-center gap-2 px-5 py-3.5 border-r border-neo-cream/10">
+                                    <Terminal className="w-5 h-5 text-neo-orange" />
+                                    <span className="text-sm text-neo-cream font-heading font-bold tracking-wide">Quick Start Guide</span>
+                                </div>
+                                <div className="flex items-center">
+                                    {LANGS.map(lang => {
+                                        const isActive = selectedLang === lang;
+                                        return (
+                                            <button
+                                                key={lang}
+                                                onClick={() => setSelectedLang(lang)}
+                                                className={`
+                                                    relative px-5 py-3.5 text-xs font-bold uppercase tracking-wider transition-all
+                                                    ${isActive
+                                                        ? 'bg-neo-orange/15 text-neo-orange'
+                                                        : 'text-neo-cream/40 hover:text-neo-cream/70 hover:bg-neo-cream/5'
+                                                    }
+                                                `}
+                                            >
+                                                {lang}
+                                                {isActive && (
+                                                    <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-neo-orange" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <button
+                                onClick={copySnippet}
+                                className="mr-3 px-3 py-1.5 bg-neo-cream/10 hover:bg-neo-cream/20 text-neo-cream text-[11px] font-bold uppercase flex items-center gap-1.5 transition-colors border border-neo-cream/10"
+                            >
+                                {copied === 'snippet' ? <><Check className="w-3.5 h-3.5 text-neo-teal" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Code</>}
+                            </button>
+                        </div>
+
+                        {/* Code block with line numbers */}
+                        <div className="relative bg-[#0a1628]">
+                            <div className="flex">
+                                {/* Line numbers */}
+                                <div className="flex-shrink-0 py-5 pl-4 pr-3 select-none border-r border-neo-cream/5">
+                                    {getSnippet(selectedLang, activeKey).split('\n').map((_, i) => (
+                                        <div key={i} className="text-[11px] leading-[1.7] text-neo-cream/15 font-mono text-right" style={{ minWidth: '24px' }}>
+                                            {i + 1}
+                                        </div>
+                                    ))}
+                                </div>
+                                {/* Code content */}
+                                <pre className="flex-1 py-5 px-5 overflow-x-auto max-h-[55vh]">
+                                    <code className="text-[12.5px] leading-[1.7] font-mono">
+                                        {getSnippet(selectedLang, activeKey).split('\n').map((line, i) => {
+                                            // Simple syntax highlighting
+                                            let colored = line;
+                                            // Comments
+                                            if (line.trimStart().startsWith('#') || line.trimStart().startsWith('//')) {
+                                                return <div key={i} className="text-neo-teal/40">{line}</div>;
+                                            }
+                                            // Strings
+                                            if (/^(import |from |const |async |interface |type )/.test(line.trimStart())) {
+                                                const keyword = line.match(/^\s*(import|from|const|async|interface|type|function|return|await)\b/);
+                                                if (keyword) {
+                                                    const idx = line.indexOf(keyword[1]);
+                                                    return (
+                                                        <div key={i}>
+                                                            <span className="text-neo-cream/50">{line.slice(0, idx)}</span>
+                                                            <span className="text-neo-orange">{keyword[1]}</span>
+                                                            <span className="text-neo-cream/80">{line.slice(idx + keyword[1].length)}</span>
+                                                        </div>
+                                                    );
+                                                }
+                                            }
+                                            return <div key={i} className="text-neo-cream/80">{line || '\u00A0'}</div>;
+                                        })}
+                                    </code>
+                                </pre>
+                            </div>
+                        </div>
+
+                        {/* Active key indicator */}
+                        <div className="bg-[#0d1d33] px-5 py-2.5 flex items-center gap-3 border-t border-neo-cream/5">
+                            <Hash className="w-3.5 h-3.5 text-neo-cream/20" />
+                            <span className="text-[10px] text-neo-cream/30 font-bold uppercase tracking-wider">Using Key:</span>
+                            <code className="text-[11px] text-neo-orange/70 font-mono">
+                                {activeKey ? activeKey.slice(0, 3) + '••••' + activeKey.slice(-8) : 'No key selected'}
+                            </code>
+                            {activeKey && (
+                                <button
+                                    onClick={() => copyToClipboard(activeKey, 'active-key')}
+                                    className="text-neo-cream/20 hover:text-neo-cream/50 transition-colors ml-1"
+                                >
+                                    {copied === 'active-key' ? <Check className="w-3 h-3 text-neo-teal" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                            )}
                         </div>
                     </NeoCard>
                 </div>
