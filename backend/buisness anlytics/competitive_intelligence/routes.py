@@ -25,6 +25,7 @@ from .schemas import (
     CompetitorSample,
     CompetitiveInsight,
     CompetitiveMeta,
+    LLMAnalysis,
     InsightSeverity,
     NormalizedProduct,
 )
@@ -32,6 +33,7 @@ from .scraper import scrape_competitor_data
 from .normalizer import normalize_scraped_data
 from .comparison import compute_market_summary, compute_my_position, select_competitor_sample
 from .insights import generate_insights
+from .llm_analyzer import generate_llm_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,8 @@ async def competitive_analysis(request: CompetitiveAnalysisRequest):
     4. Compute seller's position vs market
     5. Select competitor sample for response
     6. Generate rule-based insights
-    7. Build and return response
+    7. Generate LLM-powered deep analysis (graceful fallback)
+    8. Build and return response
     """
     start_time = datetime.now(timezone.utc)
     
@@ -76,10 +79,14 @@ async def competitive_analysis(request: CompetitiveAnalysisRequest):
     raw_products = scrape_competitor_data(
         product_name=request.product_name,
         category=request.category,
+        product_description=request.product_description,
         max_results=15
     )
     
     scraped_data_available = len(raw_products) > 0
+    
+    # Collect which sources returned data
+    sources_used = list({p.get("source", "unknown") for p in raw_products}) if raw_products else []
     
     # === STEP 2: Normalize ===
     normalized: List[NormalizedProduct] = []
@@ -98,8 +105,34 @@ async def competitive_analysis(request: CompetitiveAnalysisRequest):
     # === STEP 6: Insights ===
     insights = generate_insights(request.my_price, market_summary_dict, position_dict)
     
-    # === STEP 7: Build Response ===
+    # === STEP 7: LLM Deep Analysis ===
+    llm_result = None
+    llm_analysis_obj = None
+    try:
+        rule_insight_messages = [i.message for i in insights]
+        llm_result = generate_llm_analysis(
+            product_name=request.product_name,
+            product_description=request.product_description or "",
+            my_price=request.my_price,
+            category=request.category or "General",
+            market_summary=market_summary_dict,
+            position=position_dict,
+            competitors=sample_dicts,
+            rule_insights=rule_insight_messages,
+        )
+        if llm_result:
+            llm_analysis_obj = LLMAnalysis(**llm_result)
+            logger.info("LLM analysis generated successfully")
+        else:
+            logger.warning("LLM analysis returned None — skipping")
+    except Exception as e:
+        logger.error(f"LLM analysis failed (non-fatal): {e}")
+        llm_analysis_obj = None
+    
+    # === STEP 8: Build Response ===
     elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+    
+    data_source = ", ".join(sources_used) if sources_used else "none"
     
     response = CompetitiveAnalysisResponse(
         market_summary=MarketSummary(
@@ -122,18 +155,22 @@ async def competitive_analysis(request: CompetitiveAnalysisRequest):
             CompetitorSample(**s) for s in sample_dicts
         ],
         insights=insights,
+        llm_analysis=llm_analysis_obj,
         meta=CompetitiveMeta(
             scraped_data_available=scraped_data_available,
             competitor_count=market_summary_dict["competitor_count"],
             safe_to_cache=scraped_data_available and len(normalized) >= 3,
-            data_source="amazon_in" if scraped_data_available else "none",
+            data_source=data_source,
             scrape_timestamp=start_time.isoformat(),
             fallback_reason=None if scraped_data_available else "Scraping returned no results",
+            sources_used=sources_used,
+            llm_analysis_available=llm_analysis_obj is not None,
         ),
     )
     
     logger.info(f"Competitive analysis complete: {len(normalized)} products, "
-                f"{len(insights)} insights, {elapsed_ms}ms")
+                f"{len(insights)} insights, llm={'yes' if llm_analysis_obj else 'no'}, "
+                f"{elapsed_ms}ms")
     
     return response
 
