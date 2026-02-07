@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from api import router
+from competitive_intelligence import competitive_router
 
 # Configure logging
 logging.basicConfig(
@@ -91,6 +92,9 @@ app.add_middleware(
 # Include analytics routes
 app.include_router(router)
 
+# Include competitive intelligence routes
+app.include_router(competitive_router)
+
 
 # Root endpoint
 @app.get("/", tags=["Root"])
@@ -104,6 +108,7 @@ async def root():
         "endpoints": {
             "calculate": "POST /analytics/calculate",
             "simulate": "POST /analytics/simulate",
+            "competitive_analysis": "POST /analytics/competitive-analysis",
             "health": "GET /analytics/health",
             "schema": "GET /analytics/schema"
         }

@@ -10,3 +10,7 @@ pydantic>=2.5.0
 
 # Utilities (optional but recommended)
 python-multipart>=0.0.6  # For form data support
+
+# Competitive Intelligence - Web Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
