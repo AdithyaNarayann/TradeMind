@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 3600  # 1 hour
     max_sessions_per_client: int = 10
     
+    # OpenRouter LLM
+    openrouter_api_key: str = ""  # Get from https://openrouter.ai/keys
+    openrouter_model: str = "google/gemini-2.0-flash-001"  # Fast & cheap
+    llm_max_tokens: int = 200
+    llm_temperature: float = 0.7
+    llm_timeout_seconds: float = 10.0
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
