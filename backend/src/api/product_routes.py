@@ -248,3 +248,92 @@ async def import_csv(body: dict, user=Depends(get_current_user)):
                     errors.append(f"Row {i}: {str(e)}")
 
     return CSVImportResult(created=created, errors=errors)
+
+
+@router.get("/{product_id}/stats")
+async def get_product_stats(product_id: int, user=Depends(get_current_user)):
+    """Compute live analytics for a product from chat_sessions data."""
+    async with get_conn() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            # Verify product ownership
+            await cur.execute(
+                "SELECT id, name, base_price, cost_price FROM products WHERE id = %s AND user_id = %s",
+                (product_id, user["id"]),
+            )
+            product = await cur.fetchone()
+            if not product:
+                raise HTTPException(status_code=404, detail="Product not found")
+
+            product_name = product["name"]
+
+            # Aggregate stats from chat_sessions for this product
+            await cur.execute(
+                """SELECT
+                       COUNT(*)                                              AS total_sessions,
+                       SUM(CASE WHEN deal_closed = 1 THEN 1 ELSE 0 END)     AS accepted_deals,
+                       SUM(CASE WHEN deal_closed = 0 AND status != 'active'
+                                THEN 1 ELSE 0 END)                          AS rejected_deals,
+                       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)   AS active_sessions,
+                       AVG(rounds_used)                                      AS avg_rounds,
+                       AVG(CASE WHEN deal_closed = 1 THEN final_price END)   AS avg_final_price,
+                       MIN(CASE WHEN deal_closed = 1 THEN final_price END)   AS min_deal_price,
+                       MAX(CASE WHEN deal_closed = 1 THEN final_price END)   AS max_deal_price,
+                       SUM(CASE WHEN deal_closed = 1 THEN final_price ELSE 0 END) AS total_revenue,
+                       AVG(CASE WHEN deal_closed = 1 AND final_price IS NOT NULL
+                                THEN ((final_price - %s) / final_price * 100)
+                           END)                                              AS avg_margin,
+                       AVG(CASE WHEN deal_closed = 1 THEN buyer_last_offer END) AS avg_buyer_offer,
+                       AVG(CASE WHEN deal_closed = 1 THEN seller_last_offer END) AS avg_seller_offer
+                   FROM chat_sessions
+                   WHERE user_id = %s AND product_name = %s""",
+                (float(product["cost_price"]), user["id"], product_name),
+            )
+            row = await cur.fetchone()
+
+            # Recent sessions (last 10)
+            await cur.execute(
+                """SELECT id, status, deal_closed, final_price, rounds_used,
+                          buyer_last_offer, seller_last_offer, created_at, closed_at
+                   FROM chat_sessions
+                   WHERE user_id = %s AND product_name = %s
+                   ORDER BY created_at DESC LIMIT 10""",
+                (user["id"], product_name),
+            )
+            recent_rows = await cur.fetchall()
+
+    total = int(row["total_sessions"] or 0)
+    deals = int(row["accepted_deals"] or 0)
+    rejected = int(row["rejected_deals"] or 0)
+
+    recent = []
+    for r in recent_rows:
+        recent.append({
+            "id": r["id"],
+            "status": r["status"],
+            "deal_closed": bool(r["deal_closed"]),
+            "final_price": float(r["final_price"]) if r["final_price"] else None,
+            "rounds_used": r["rounds_used"],
+            "buyer_last_offer": float(r["buyer_last_offer"]) if r["buyer_last_offer"] else None,
+            "seller_last_offer": float(r["seller_last_offer"]) if r["seller_last_offer"] else None,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
+        })
+
+    return {
+        "product_id": product_id,
+        "product_name": product_name,
+        "total_sessions": total,
+        "accepted_deals": deals,
+        "rejected_deals": rejected,
+        "active_sessions": int(row["active_sessions"] or 0),
+        "accept_rate": round(deals / total * 100, 1) if total > 0 else 0,
+        "avg_rounds": round(float(row["avg_rounds"] or 0), 1),
+        "avg_final_price": round(float(row["avg_final_price"] or 0), 2),
+        "min_deal_price": round(float(row["min_deal_price"] or 0), 2),
+        "max_deal_price": round(float(row["max_deal_price"] or 0), 2),
+        "total_revenue": round(float(row["total_revenue"] or 0), 2),
+        "avg_margin": round(float(row["avg_margin"] or 0), 1),
+        "avg_buyer_offer": round(float(row["avg_buyer_offer"] or 0), 2),
+        "avg_seller_offer": round(float(row["avg_seller_offer"] or 0), 2),
+        "recent_sessions": recent,
+    }

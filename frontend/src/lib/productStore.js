@@ -235,3 +235,18 @@ export async function getAggregateAnalytics() {
         products, // for per-product breakdowns
     };
 }
+
+/** Fetch live stats for a specific product from chat_sessions data */
+export async function getProductStats(productId) {
+    if (!_token()) return null;
+    try {
+        const res = await fetch(`${AUTH_API_URL}/api/v1/products/${productId}/stats`, {
+            headers: _headers(),
+        });
+        if (res.status === 401) { _handleUnauthorized(); return null; }
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+}

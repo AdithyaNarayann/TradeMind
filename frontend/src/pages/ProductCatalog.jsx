@@ -10,7 +10,8 @@ import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
 import {
-    getProducts, createProduct, updateProduct, deleteProduct, importFromCSV
+    getProducts, createProduct, updateProduct, deleteProduct, importFromCSV,
+    getProductStats
 } from '../lib/productStore';
 
 export default function ProductCatalog() {
@@ -23,6 +24,8 @@ export default function ProductCatalog() {
     const [importResult, setImportResult] = useState(null);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [analyticsOpen, setAnalyticsOpen] = useState(null); // product id or null
+    const [liveStats, setLiveStats] = useState(null);
+    const [statsLoading, setStatsLoading] = useState(false);
 
     // Form state
     const [form, setForm] = useState({
@@ -123,6 +126,15 @@ export default function ProductCatalog() {
     }
 
     // ── Filter ─────────────────────────────────────────────────────────────
+
+    async function openAnalytics(productId) {
+        setAnalyticsOpen(productId);
+        setLiveStats(null);
+        setStatsLoading(true);
+        const data = await getProductStats(productId);
+        setLiveStats(data);
+        setStatsLoading(false);
+    }
 
     const filteredProducts = products.filter(p =>
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -417,7 +429,7 @@ export default function ProductCatalog() {
                                         <NeoButton
                                             variant="orange"
                                             size="sm"
-                                            onClick={() => setAnalyticsOpen(product.id)}
+                                            onClick={() => openAnalytics(product.id)}
                                         >
                                             <BarChart3 className="w-4 h-4 mr-1" /> Analytics
                                         </NeoButton>
@@ -449,9 +461,6 @@ export default function ProductCatalog() {
                                 ? ((product.basePrice - product.costPrice) / product.costPrice * 100)
                                 : 0;
                             const profitPerUnit = product.basePrice - product.costPrice;
-                            const acceptRate = product.stats.totalSessions > 0
-                                ? (product.stats.acceptedDeals / product.stats.totalSessions * 100)
-                                : 0;
                             const priceRange = product.basePrice - product.costPrice;
                             const minPos = priceRange > 0
                                 ? ((product.minAcceptablePrice - product.costPrice) / priceRange * 100)
@@ -460,12 +469,26 @@ export default function ProductCatalog() {
                             const negotiationBuffer = product.basePrice - product.minAcceptablePrice;
                             const bufferPercent = product.basePrice > 0 ? (negotiationBuffer / product.basePrice * 100) : 0;
 
-                            return (
-                                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setAnalyticsOpen(null)}>
-                                    {/* Backdrop */}
-                                    <div className="absolute inset-0 bg-neo-navy/60 backdrop-blur-sm" />
+                            // Live stats from DB (or fallback)
+                            const s = liveStats || {};
+                            const totalSessions = s.total_sessions || 0;
+                            const acceptedDeals = s.accepted_deals || 0;
+                            const rejectedDeals = s.rejected_deals || 0;
+                            const activeSessions = s.active_sessions || 0;
+                            const acceptRate = s.accept_rate || 0;
+                            const avgRounds = s.avg_rounds || 0;
+                            const avgFinalPrice = s.avg_final_price || 0;
+                            const minDealPrice = s.min_deal_price || 0;
+                            const maxDealPrice = s.max_deal_price || 0;
+                            const totalRevenue = s.total_revenue || 0;
+                            const avgMargin = s.avg_margin || 0;
+                            const avgBuyerOffer = s.avg_buyer_offer || 0;
+                            const avgSellerOffer = s.avg_seller_offer || 0;
+                            const recentSessions = s.recent_sessions || [];
 
-                                    {/* Modal */}
+                            return (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => { setAnalyticsOpen(null); setLiveStats(null); }}>
+                                    <div className="absolute inset-0 bg-neo-navy/60 backdrop-blur-sm" />
                                     <div
                                         className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-neo-cream border-[4px] border-neo-navy shadow-[8px_8px_0px_0px] shadow-neo-navy/40"
                                         onClick={e => e.stopPropagation()}
@@ -478,191 +501,276 @@ export default function ProductCatalog() {
                                                 </div>
                                                 <div>
                                                     <p className="font-heading font-bold text-neo-cream text-lg">{product.name}</p>
-                                                    <p className="text-[10px] text-neo-cream/50 uppercase tracking-wider font-bold">Product Analytics</p>
+                                                    <p className="text-[10px] text-neo-cream/50 uppercase tracking-wider font-bold">
+                                                        Product Analytics {statsLoading ? '' : '· Live from DB'}
+                                                    </p>
                                                 </div>
                                             </div>
                                             <button
-                                                onClick={() => setAnalyticsOpen(null)}
+                                                onClick={() => { setAnalyticsOpen(null); setLiveStats(null); }}
                                                 className="w-8 h-8 bg-neo-cream/10 hover:bg-neo-cream/20 flex items-center justify-center transition-colors"
                                             >
                                                 <X className="w-5 h-5 text-neo-cream" />
                                             </button>
                                         </div>
 
-                                        {/* Key Metrics */}
-                                        <div className="p-4 pb-3">
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                                <div className="bg-neo-navy p-3 text-center">
-                                                    <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Profit / Unit</p>
-                                                    <p className={`text-xl font-heading font-bold ${profitPerUnit >= 0 ? 'text-neo-teal' : 'text-neo-maroon'}`}>
-                                                        ₹{profitPerUnit.toFixed(0)}
-                                                    </p>
-                                                </div>
-                                                <div className="bg-neo-navy p-3 text-center">
-                                                    <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Margin</p>
-                                                    <p className={`text-xl font-heading font-bold ${margin >= 20 ? 'text-neo-teal' : margin >= 10 ? 'text-neo-orange' : 'text-neo-maroon'}`}>
-                                                        {margin.toFixed(1)}%
-                                                    </p>
-                                                </div>
-                                                <div className="bg-neo-navy p-3 text-center">
-                                                    <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Markup</p>
-                                                    <p className="text-xl font-heading font-bold text-neo-orange">
-                                                        {markup.toFixed(1)}%
-                                                    </p>
-                                                </div>
-                                                <div className="bg-neo-navy p-3 text-center">
-                                                    <p className="text-neo-cream/50 text-[8px] uppercase font-bold tracking-wider">Accept Rate</p>
-                                                    <p className={`text-xl font-heading font-bold ${acceptRate >= 50 ? 'text-neo-teal' : acceptRate > 0 ? 'text-neo-orange' : 'text-neo-cream/30'}`}>
-                                                        {product.stats.totalSessions > 0 ? `${acceptRate.toFixed(0)}%` : '—'}
-                                                    </p>
+                                        {statsLoading ? (
+                                            <div className="h-48 flex items-center justify-center">
+                                                <div className="text-center">
+                                                    <Loader2 className="w-8 h-8 text-neo-teal animate-spin mx-auto mb-2" />
+                                                    <p className="text-sm text-neo-navy/60 font-bold">Loading live data...</p>
                                                 </div>
                                             </div>
-                                        </div>
-
-                                        {/* Price Positioning */}
-                                        <div className="px-4 pb-3">
-                                            <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
-                                                <Target className="w-3 h-3" /> Price Positioning
-                                            </p>
-                                            <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3">
-                                                <div className="relative h-8 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
-                                                    <div className="absolute inset-y-0 left-0 bg-neo-maroon/20" style={{ width: `${100 - margin}%` }} />
-                                                    <div className="absolute inset-y-0 right-0 bg-neo-teal/30" style={{ width: `${margin}%` }} />
-                                                    <div
-                                                        className="absolute top-0 bottom-0 w-0.5 bg-neo-orange z-10"
-                                                        style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
-                                                    >
-                                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-neo-orange text-neo-navy text-[8px] font-bold px-1.5 py-0.5 whitespace-nowrap">
-                                                            Min ₹{product.minAcceptablePrice}
+                                        ) : (
+                                            <>
+                                                {/* Key Metrics — 6 cards */}
+                                                <div className="p-4 pb-3">
+                                                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Profit/Unit</p>
+                                                            <p className={`text-lg font-heading font-bold ${profitPerUnit >= 0 ? 'text-neo-teal' : 'text-neo-maroon'}`}>
+                                                                ₹{profitPerUnit.toFixed(0)}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Margin</p>
+                                                            <p className={`text-lg font-heading font-bold ${margin >= 20 ? 'text-neo-teal' : margin >= 10 ? 'text-neo-orange' : 'text-neo-maroon'}`}>
+                                                                {margin.toFixed(1)}%
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Markup</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-orange">{markup.toFixed(1)}%</p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Sessions</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-cream">{totalSessions}</p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Deals</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-teal">{acceptedDeals}</p>
+                                                        </div>
+                                                        <div className="bg-neo-navy p-2.5 text-center">
+                                                            <p className="text-neo-cream/50 text-[7px] uppercase font-bold tracking-wider">Accept %</p>
+                                                            <p className={`text-lg font-heading font-bold ${acceptRate >= 50 ? 'text-neo-teal' : acceptRate > 0 ? 'text-neo-orange' : 'text-neo-cream/30'}`}>
+                                                                {totalSessions > 0 ? `${acceptRate}%` : '—'}
+                                                            </p>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex justify-between mt-1.5">
-                                                    <span className="text-[10px] font-bold text-neo-maroon flex items-center gap-0.5">
-                                                        <TrendingDown className="w-3 h-3" /> Cost ₹{product.costPrice}
-                                                    </span>
-                                                    <span className="text-[10px] font-bold text-neo-teal flex items-center gap-0.5">
-                                                        Base ₹{product.basePrice} <TrendingUp className="w-3 h-3" />
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
 
-                                        {/* Negotiation & Strategy */}
-                                        <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            {/* Negotiation Buffer */}
-                                            <div className="border-[2px] border-neo-navy p-3">
-                                                <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
-                                                    <Activity className="w-3 h-3" /> Negotiation Room
-                                                </p>
-                                                <div className="space-y-2">
-                                                    <div>
-                                                        <div className="flex justify-between text-[10px] mb-1">
-                                                            <span className="text-neo-navy/60 font-bold">Buffer</span>
-                                                            <span className="font-bold text-neo-navy">₹{negotiationBuffer.toFixed(0)} ({bufferPercent.toFixed(1)}%)</span>
-                                                        </div>
-                                                        <div className="h-3 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
-                                                            <div
-                                                                className={`h-full transition-all ${bufferPercent > 20 ? 'bg-neo-teal' : bufferPercent > 10 ? 'bg-neo-orange' : 'bg-neo-maroon'}`}
-                                                                style={{ width: `${Math.min(bufferPercent, 100)}%` }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center justify-between text-xs">
-                                                        <span className="text-neo-navy/60">Max Loss</span>
-                                                        <span className="font-bold text-neo-maroon">{product.maxLossPercent}% (₹{maxLossAmt.toFixed(0)})</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between text-xs">
-                                                        <span className="text-neo-navy/60">Max Rounds</span>
-                                                        <span className="font-bold text-neo-navy">{product.maxRounds}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Deal Funnel */}
-                                            <div className="border-[2px] border-neo-navy p-3">
-                                                <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
-                                                    <ShoppingCart className="w-3 h-3" /> Deal Funnel
-                                                </p>
-                                                {product.stats.totalSessions > 0 ? (
-                                                    <div className="space-y-1.5">
-                                                        <div>
-                                                            <div className="flex justify-between text-[10px] mb-0.5">
-                                                                <span className="font-bold text-neo-navy">Sessions</span>
-                                                                <span className="font-bold text-neo-navy">{product.stats.totalSessions}</span>
-                                                            </div>
-                                                            <div className="h-5 bg-neo-navy flex items-center justify-end pr-2">
-                                                                <span className="text-[9px] font-bold text-neo-cream/70">100%</span>
-                                                            </div>
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex justify-between text-[10px] mb-0.5">
-                                                                <span className="font-bold text-neo-teal">Deals Closed</span>
-                                                                <span className="font-bold text-neo-teal">{product.stats.acceptedDeals}</span>
-                                                            </div>
-                                                            <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
-                                                                <div
-                                                                    className="h-full bg-neo-teal flex items-center justify-end pr-2 transition-all"
-                                                                    style={{ width: `${Math.max(acceptRate, 4)}%` }}
-                                                                >
-                                                                    {acceptRate >= 15 && (
-                                                                        <span className="text-[9px] font-bold text-neo-cream">{acceptRate.toFixed(0)}%</span>
-                                                                    )}
+                                                {/* Price Positioning */}
+                                                <div className="px-4 pb-3">
+                                                    <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                        <Target className="w-3 h-3" /> Price Positioning
+                                                    </p>
+                                                    <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3">
+                                                        <div className="relative h-8 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                            <div className="absolute inset-y-0 left-0 bg-neo-maroon/20" style={{ width: `${100 - margin}%` }} />
+                                                            <div className="absolute inset-y-0 right-0 bg-neo-teal/30" style={{ width: `${margin}%` }} />
+                                                            <div className="absolute top-0 bottom-0 w-0.5 bg-neo-orange z-10" style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}>
+                                                                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-neo-orange text-neo-navy text-[8px] font-bold px-1.5 py-0.5 whitespace-nowrap">
+                                                                    Min ₹{product.minAcceptablePrice}
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex justify-between text-[10px] mb-0.5">
-                                                                <span className="font-bold text-neo-maroon">Lost / Rejected</span>
-                                                                <span className="font-bold text-neo-maroon">{product.stats.totalSessions - product.stats.acceptedDeals}</span>
-                                                            </div>
-                                                            <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
-                                                                <div
-                                                                    className="h-full bg-neo-maroon/70 flex items-center justify-end pr-2 transition-all"
-                                                                    style={{ width: `${Math.max(100 - acceptRate, 4)}%` }}
-                                                                >
-                                                                    {(100 - acceptRate) >= 15 && (
-                                                                        <span className="text-[9px] font-bold text-neo-cream">{(100 - acceptRate).toFixed(0)}%</span>
-                                                                    )}
+                                                            {/* Avg deal price marker */}
+                                                            {avgFinalPrice > 0 && priceRange > 0 && (
+                                                                <div className="absolute top-0 bottom-0 w-0.5 bg-neo-teal z-10" style={{ left: `${Math.min(Math.max((avgFinalPrice - product.costPrice) / priceRange * 100, 2), 98)}%` }}>
+                                                                    <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-neo-teal text-neo-cream text-[8px] font-bold px-1.5 py-0.5 whitespace-nowrap">
+                                                                        Avg Deal ₹{avgFinalPrice.toFixed(0)}
+                                                                    </div>
                                                                 </div>
-                                                            </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex justify-between mt-1.5">
+                                                            <span className="text-[10px] font-bold text-neo-maroon flex items-center gap-0.5">
+                                                                <TrendingDown className="w-3 h-3" /> Cost ₹{product.costPrice}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-neo-teal flex items-center gap-0.5">
+                                                                Base ₹{product.basePrice} <TrendingUp className="w-3 h-3" />
+                                                            </span>
                                                         </div>
                                                     </div>
-                                                ) : (
-                                                    <div className="h-24 flex items-center justify-center text-neo-navy/30 border-[2px] border-dashed border-neo-navy/20">
-                                                        <div className="text-center">
-                                                            <ShoppingCart className="w-5 h-5 mx-auto mb-1 opacity-40" />
-                                                            <p className="text-[10px]">No negotiations yet</p>
+                                                </div>
+
+                                                {/* Negotiation & Deal Funnel */}
+                                                <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    {/* Negotiation Room */}
+                                                    <div className="border-[2px] border-neo-navy p-3">
+                                                        <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                            <Activity className="w-3 h-3" /> Negotiation Room
+                                                        </p>
+                                                        <div className="space-y-2">
+                                                            <div>
+                                                                <div className="flex justify-between text-[10px] mb-1">
+                                                                    <span className="text-neo-navy/60 font-bold">Buffer</span>
+                                                                    <span className="font-bold text-neo-navy">₹{negotiationBuffer.toFixed(0)} ({bufferPercent.toFixed(1)}%)</span>
+                                                                </div>
+                                                                <div className="h-3 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                    <div className={`h-full transition-all ${bufferPercent > 20 ? 'bg-neo-teal' : bufferPercent > 10 ? 'bg-neo-orange' : 'bg-neo-maroon'}`} style={{ width: `${Math.min(bufferPercent, 100)}%` }} />
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className="text-neo-navy/60">Max Loss</span>
+                                                                <span className="font-bold text-neo-maroon">{product.maxLossPercent}% (₹{maxLossAmt.toFixed(0)})</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className="text-neo-navy/60">Avg Rounds Used</span>
+                                                                <span className="font-bold text-neo-navy">{avgRounds} / {product.maxRounds}</span>
+                                                            </div>
+                                                            {avgBuyerOffer > 0 && (
+                                                                <div className="flex items-center justify-between text-xs">
+                                                                    <span className="text-neo-navy/60">Avg Buyer Offer</span>
+                                                                    <span className="font-bold text-neo-orange">₹{avgBuyerOffer.toFixed(0)}</span>
+                                                                </div>
+                                                            )}
+                                                            {avgSellerOffer > 0 && (
+                                                                <div className="flex items-center justify-between text-xs">
+                                                                    <span className="text-neo-navy/60">Avg Seller Counter</span>
+                                                                    <span className="font-bold text-neo-teal">₹{avgSellerOffer.toFixed(0)}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Deal Funnel */}
+                                                    <div className="border-[2px] border-neo-navy p-3">
+                                                        <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                            <ShoppingCart className="w-3 h-3" /> Deal Funnel
+                                                        </p>
+                                                        {totalSessions > 0 ? (
+                                                            <div className="space-y-1.5">
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-navy">Total Sessions</span>
+                                                                        <span className="font-bold text-neo-navy">{totalSessions}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy flex items-center justify-end pr-2">
+                                                                        <span className="text-[9px] font-bold text-neo-cream/70">100%</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-teal">Deals Closed</span>
+                                                                        <span className="font-bold text-neo-teal">{acceptedDeals}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                        <div className="h-full bg-neo-teal flex items-center justify-end pr-2 transition-all" style={{ width: `${Math.max(acceptRate, 4)}%` }}>
+                                                                            {acceptRate >= 15 && <span className="text-[9px] font-bold text-neo-cream">{acceptRate}%</span>}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                                                        <span className="font-bold text-neo-maroon">Rejected / Lost</span>
+                                                                        <span className="font-bold text-neo-maroon">{rejectedDeals}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                        <div className="h-full bg-neo-maroon/70 flex items-center justify-end pr-2 transition-all" style={{ width: `${totalSessions > 0 ? Math.max(rejectedDeals / totalSessions * 100, 4) : 4}%` }}>
+                                                                            {totalSessions > 0 && (rejectedDeals / totalSessions * 100) >= 15 && <span className="text-[9px] font-bold text-neo-cream">{(rejectedDeals / totalSessions * 100).toFixed(0)}%</span>}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                {activeSessions > 0 && (
+                                                                    <div>
+                                                                        <div className="flex justify-between text-[10px] mb-0.5">
+                                                                            <span className="font-bold text-neo-orange">Still Active</span>
+                                                                            <span className="font-bold text-neo-orange">{activeSessions}</span>
+                                                                        </div>
+                                                                        <div className="h-5 bg-neo-navy/10 border border-neo-navy/20 overflow-hidden">
+                                                                            <div className="h-full bg-neo-orange/70 flex items-center justify-end pr-2 transition-all" style={{ width: `${Math.max(activeSessions / totalSessions * 100, 4)}%` }} />
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="h-24 flex items-center justify-center text-neo-navy/30 border-[2px] border-dashed border-neo-navy/20">
+                                                                <div className="text-center">
+                                                                    <ShoppingCart className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                                                                    <p className="text-[10px]">No negotiations yet</p>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Revenue & Deal Range */}
+                                                <div className="px-4 pb-3">
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                        <div className="bg-neo-teal/10 border-[2px] border-neo-teal p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-teal/70 tracking-wider">Total Revenue</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-teal">₹{totalRevenue.toLocaleString()}</p>
+                                                        </div>
+                                                        <div className="bg-neo-orange/10 border-[2px] border-neo-orange p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-orange/70 tracking-wider">Avg Deal Price</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-orange">
+                                                                {avgFinalPrice > 0 ? `₹${avgFinalPrice.toFixed(0)}` : '—'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-navy/50 tracking-wider">Deal Range</p>
+                                                            <p className="text-sm font-heading font-bold text-neo-navy">
+                                                                {minDealPrice > 0 ? `₹${minDealPrice.toFixed(0)} – ₹${maxDealPrice.toFixed(0)}` : '—'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">
+                                                            <p className="text-[8px] uppercase font-bold text-neo-navy/50 tracking-wider">Avg Margin</p>
+                                                            <p className={`text-lg font-heading font-bold ${avgMargin >= 20 ? 'text-neo-teal' : avgMargin > 0 ? 'text-neo-orange' : 'text-neo-navy/30'}`}>
+                                                                {avgMargin > 0 ? `${avgMargin}%` : '—'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Recent Sessions */}
+                                                {recentSessions.length > 0 && (
+                                                    <div className="px-4 pb-4">
+                                                        <p className="text-[10px] uppercase font-bold text-neo-navy/50 mb-2 flex items-center gap-1">
+                                                            <BarChart3 className="w-3 h-3" /> Recent Negotiations
+                                                        </p>
+                                                        <div className="border-[2px] border-neo-navy overflow-hidden">
+                                                            <div className="bg-neo-navy/10 px-3 py-1.5 grid grid-cols-5 gap-2 text-[9px] uppercase font-bold text-neo-navy/60">
+                                                                <span>Status</span>
+                                                                <span>Final Price</span>
+                                                                <span>Rounds</span>
+                                                                <span>Buyer Offer</span>
+                                                                <span>Date</span>
+                                                            </div>
+                                                            {recentSessions.map((sess, i) => (
+                                                                <div key={sess.id} className={`px-3 py-2 grid grid-cols-5 gap-2 text-xs items-center ${i % 2 === 0 ? 'bg-white/50' : 'bg-neo-cream'}`}>
+                                                                    <span className={`font-bold text-[10px] ${sess.deal_closed ? 'text-neo-teal' : sess.status === 'active' ? 'text-neo-orange' : 'text-neo-maroon'}`}>
+                                                                        {sess.deal_closed ? '✓ Closed' : sess.status === 'active' ? '● Active' : '✗ ' + (sess.status || 'Lost')}
+                                                                    </span>
+                                                                    <span className="font-bold text-neo-navy">
+                                                                        {sess.final_price ? `₹${sess.final_price}` : '—'}
+                                                                    </span>
+                                                                    <span className="text-neo-navy/70">{sess.rounds_used || 0}</span>
+                                                                    <span className="text-neo-navy/70">
+                                                                        {sess.buyer_last_offer ? `₹${sess.buyer_last_offer}` : '—'}
+                                                                    </span>
+                                                                    <span className="text-neo-navy/50 text-[10px]">
+                                                                        {sess.created_at ? new Date(sess.created_at).toLocaleDateString() : '—'}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 )}
-                                            </div>
-                                        </div>
 
-                                        {/* Revenue & Summary */}
-                                        <div className="px-4 pb-4">
-                                            <div className="grid grid-cols-3 gap-2">
-                                                <div className="bg-neo-teal/10 border-[2px] border-neo-teal p-3 text-center">
-                                                    <p className="text-[8px] uppercase font-bold text-neo-teal/70 tracking-wider">Revenue</p>
-                                                    <p className="text-lg font-heading font-bold text-neo-teal">
-                                                        ₹{(product.stats.revenue || 0).toLocaleString()}
-                                                    </p>
+                                                {/* Strategy Badge */}
+                                                <div className="px-4 pb-4">
+                                                    <div className="flex items-center justify-center gap-3 p-3 bg-neo-navy/5 border-[2px] border-neo-navy">
+                                                        <Award className="w-5 h-5 text-neo-navy/40" />
+                                                        <span className="text-xs font-bold text-neo-navy/60">Strategy:</span>
+                                                        <span className={`font-heading font-bold ${product.mode === 'MAX_PROFIT' ? 'text-neo-teal' : 'text-neo-maroon'}`}>
+                                                            {product.mode === 'MAX_PROFIT' ? 'MAX PROFIT' : 'MIN LOSS'}
+                                                        </span>
+                                                        <span className="text-xs text-neo-navy/40">·</span>
+                                                        <span className="text-xs font-bold text-neo-navy/60">{product.category}</span>
+                                                    </div>
                                                 </div>
-                                                <div className="bg-neo-orange/10 border-[2px] border-neo-orange p-3 text-center">
-                                                    <p className="text-[8px] uppercase font-bold text-neo-orange/70 tracking-wider">Avg Margin</p>
-                                                    <p className="text-lg font-heading font-bold text-neo-orange">
-                                                        {product.stats.avgMargin > 0 ? `${product.stats.avgMargin.toFixed(1)}%` : '—'}
-                                                    </p>
-                                                </div>
-                                                <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">
-                                                    <p className="text-[8px] uppercase font-bold text-neo-navy/50 tracking-wider">Strategy</p>
-                                                    <p className={`text-sm font-heading font-bold ${product.mode === 'MAX_PROFIT' ? 'text-neo-teal' : 'text-neo-maroon'}`}>
-                                                        {product.mode === 'MAX_PROFIT' ? 'MAX PROFIT' : 'MIN LOSS'}
-                                                    </p>
-                                                    <Award className="w-4 h-4 mx-auto mt-1 text-neo-navy/30" />
-                                                </div>
-                                            </div>
-                                        </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             );
