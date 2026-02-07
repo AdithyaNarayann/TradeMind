@@ -126,3 +126,76 @@ export async function getReputationData(walletAddress) {
   return response.json();
 }
 
+// ============================================================
+// Business Analytics API
+// ============================================================
+
+const ANALYTICS_API_URL = import.meta.env.VITE_ANALYTICS_API_URL || 'http://localhost:8000/api/v1';
+
+export async function calculateAnalytics(data) {
+  const response = await fetch(`${ANALYTICS_API_URL}/analytics/calculate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Calculation failed' }));
+    let message = 'Calculation failed';
+    if (Array.isArray(err.detail)) {
+      message = err.detail.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`).join('; ');
+    } else if (typeof err.detail === 'string') {
+      message = err.detail;
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function simulateAnalytics(data) {
+  const response = await fetch(`${ANALYTICS_API_URL}/analytics/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Simulation failed' }));
+    let message = 'Simulation failed';
+    if (Array.isArray(err.detail)) {
+      message = err.detail.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`).join('; ');
+    } else if (typeof err.detail === 'string') {
+      message = err.detail;
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function getCompetitiveAnalysis(data) {
+  const response = await fetch(`${ANALYTICS_API_URL}/analytics/competitive-analysis`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Competitive analysis failed' }));
+    let message = 'Competitive analysis failed';
+    if (Array.isArray(err.detail)) {
+      message = err.detail.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`).join('; ');
+    } else if (typeof err.detail === 'string') {
+      message = err.detail;
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function getAnalyticsHealth() {
+  const response = await fetch(`${ANALYTICS_API_URL}/analytics/health`);
+  return response.json();
+}
+
+export async function getAnalyticsSchema() {
+  const response = await fetch(`${ANALYTICS_API_URL}/analytics/schema`);
+  return response.json();
+}
+

@@ -3,538 +3,941 @@ import { Link } from 'react-router-dom';
 import {
   BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
   Clock, AlertTriangle, ExternalLink, Bot, FileText, Filter,
-  Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User
+  Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User,
+  DollarSign, TrendingUp, TrendingDown, ShoppingCart, Package,
+  Percent, Activity, Zap, Info, ChevronRight, Calculator
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
-import SourceNetwork from '../components/SourceNetwork';
-import { getAuthorityReports, decryptReport, verifyReport, rejectReport, getAuthorityStats } from '../lib/api';
+import { calculateAnalytics, getCompetitiveAnalysis, getAnalyticsHealth } from '../lib/api';
 import { useI18n } from '../context/I18nContext';
+
+// ─── Default form values ─────────────────────────────────────────
+const DEFAULT_PRODUCT = {
+  cost_price: '',
+  selling_price: '',
+  initial_stock: '',
+  platform_fee_percent: '0',
+  shipping_cost: '0',
+  marketing_cost: '0',
+};
+
+const DEFAULT_PERFORMANCE = {
+  chats: '0',
+  orders: '0',
+  units_sold: '0',
+  returns: '0',
+};
+
+// ─── Severity colors ────────────────────────────────────────────
+const severityStyles = {
+  info:     { bg: 'bg-neo-navy/10',     border: 'border-neo-navy',   text: 'text-neo-navy',   icon: Info },
+  warning:  { bg: 'bg-neo-orange/10',   border: 'border-neo-orange', text: 'text-neo-orange', icon: AlertTriangle },
+  critical: { bg: 'bg-neo-maroon/10',   border: 'border-neo-maroon', text: 'text-neo-maroon', icon: XCircle },
+  success:  { bg: 'bg-neo-teal/10',     border: 'border-neo-teal',   text: 'text-neo-teal',   icon: CheckCircle },
+};
 
 export default function Authority() {
   const { t } = useI18n();
-  const [reports, setReports] = useState([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, verified: 0, rejected: 0 });
-  const [loading, setLoading] = useState(true);
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [decryptedData, setDecryptedData] = useState(null);
-  const [decrypting, setDecrypting] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [filter, setFilter] = useState('all');
-  const [activeTab, setActiveTab] = useState('report'); // 'report', 'analysis', 'sources'
 
-  const fetchData = async () => {
+  // ─── State ───────────────────────────────────────────────────
+  const [product, setProduct] = useState(DEFAULT_PRODUCT);
+  const [performance, setPerformance] = useState(DEFAULT_PERFORMANCE);
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [competitiveData, setCompetitiveData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [compLoading, setCompLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('metrics');
+  const [filter, setFilter] = useState('all');
+  const [backendHealthy, setBackendHealthy] = useState(null);
+
+  // ─── Stats derived from analytics response ───────────────────
+  const stats = analyticsData
+    ? {
+        revenue:    `$${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}`,
+        profit:     `$${Number(analyticsData.summary_metrics.profit_or_loss).toLocaleString()}`,
+        margin:     `${Number(analyticsData.summary_metrics.profit_margin_percent).toFixed(1)}%`,
+        conversion: `${Number(analyticsData.summary_metrics.conversion_rate).toFixed(1)}%`,
+      }
+    : { revenue: '$0', profit: '$0', margin: '0%', conversion: '0%' };
+
+  // ─── Health check on mount ───────────────────────────────────
+  useEffect(() => {
+    getAnalyticsHealth()
+      .then(() => setBackendHealthy(true))
+      .catch(() => setBackendHealthy(false));
+  }, []);
+
+  // ─── Handlers ─────────────────────────────────────────────────
+  const handleProductChange = (field, value) => {
+    setProduct(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handlePerformanceChange = (field, value) => {
+    setPerformance(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCalculate = async () => {
+    const costPrice = parseFloat(product.cost_price);
+    const sellingPrice = parseFloat(product.selling_price);
+    const initialStock = parseInt(product.initial_stock);
+
+    if (!costPrice || costPrice <= 0) {
+      setError('Cost price must be greater than 0');
+      return;
+    }
+    if (!sellingPrice || sellingPrice <= 0) {
+      setError('Selling price must be greater than 0');
+      return;
+    }
+    if (isNaN(initialStock) || initialStock < 0) {
+      setError('Initial stock must be 0 or greater');
+      return;
+    }
+
+    const unitsSold = parseInt(performance.units_sold) || 0;
+    const returns = parseInt(performance.returns) || 0;
+    if (returns > unitsSold) {
+      setError('Returns cannot exceed units sold');
+      return;
+    }
+
     setLoading(true);
+    setError(null);
+    setAnalyticsData(null);
+    setCompetitiveData(null);
+
     try {
-      const [reportsData, statsData] = await Promise.all([
-        getAuthorityReports(),
-        getAuthorityStats()
-      ]);
-      setReports(reportsData);
-      setStats(statsData);
+      const payload = {
+        product: {
+          cost_price: costPrice,
+          selling_price: sellingPrice,
+          initial_stock: initialStock,
+          platform_fee_percent: parseFloat(product.platform_fee_percent) || 0,
+          shipping_cost: parseFloat(product.shipping_cost) || 0,
+          marketing_cost: parseFloat(product.marketing_cost) || 0,
+        },
+        performance: {
+          chats: parseInt(performance.chats) || 0,
+          orders: parseInt(performance.orders) || 0,
+          units_sold: unitsSold,
+          returns: returns,
+        },
+      };
+
+      const result = await calculateAnalytics(payload);
+      setAnalyticsData(result);
+      setActiveTab('metrics');
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      console.error('Analytics failed:', err);
+      setError(err.message || 'Failed to calculate analytics');
     }
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleDecrypt = async (report) => {
-    setSelectedReport(report);
-    setDecryptedData(null);
-    setDecrypting(true);
-    setActiveTab('report');
-
+  const handleCompetitiveAnalysis = async () => {
+    if (!product.selling_price) return;
+    setCompLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const data = await decryptReport(report._id);
-      setDecryptedData(data);
+      const result = await getCompetitiveAnalysis({
+        product_name: 'Product',
+        category: 'General',
+        my_price: parseFloat(product.selling_price) || 0,
+      });
+      setCompetitiveData(result);
     } catch (err) {
-      console.error('Decryption failed:', err);
-      setDecryptedData({ error: err.message });
+      console.error('Competitive analysis failed:', err);
     }
-
-    setDecrypting(false);
+    setCompLoading(false);
   };
 
-  const handleVerify = async () => {
-    if (!selectedReport) return;
-    setActionLoading(true);
-
-    try {
-      await verifyReport(selectedReport._id, '0.005');
-      await fetchData();
-      setSelectedReport(null);
-      setDecryptedData(null);
-    } catch (err) {
-      console.error('Verification failed:', err);
-    }
-
-    setActionLoading(false);
+  const handleReset = () => {
+    setProduct(DEFAULT_PRODUCT);
+    setPerformance(DEFAULT_PERFORMANCE);
+    setAnalyticsData(null);
+    setCompetitiveData(null);
+    setError(null);
+    setActiveTab('metrics');
+    setFilter('all');
   };
 
-  const handleReject = async () => {
-    if (!selectedReport) return;
-    setActionLoading(true);
+  // ─── Filter insights ─────────────────────────────────────────
+  const filteredInsights = analyticsData?.insights?.filter(i =>
+    filter === 'all' ? true : i.severity === filter
+  ) || [];
 
-    try {
-      await rejectReport(selectedReport._id);
-      await fetchData();
-      setSelectedReport(null);
-      setDecryptedData(null);
-    } catch (err) {
-      console.error('Rejection failed:', err);
-    }
-
-    setActionLoading(false);
-  };
-
-  const getStatusBadge = (status) => {
-    const badges = {
-      'under_review': { bg: 'bg-neo-orange text-neo-navy', label: t('authority.status.underReview'), icon: Clock },
-      'verified': { bg: 'bg-neo-teal text-neo-cream', label: t('authority.status.verified'), icon: CheckCircle },
-      'rejected': { bg: 'bg-neo-maroon text-neo-cream', label: t('authority.status.rejected'), icon: XCircle },
-      'pending': { bg: 'bg-neo-cream text-neo-navy', label: t('authority.status.pending'), icon: Clock }
-    };
-    const badge = badges[status] || badges.pending;
-    const Icon = badge.icon;
-
+  // ─── Severity badge helper ────────────────────────────────────
+  const getSeverityBadge = (severity) => {
+    const style = severityStyles[severity] || severityStyles.info;
+    const Icon = style.icon;
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase border-[2px] border-neo-navy ${badge.bg}`}>
+      <span className={`inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-bold border-[2px] ${style.bg} ${style.border} ${style.text}`}>
         <Icon className="w-3 h-3" />
-        {badge.label}
+        {severity.toUpperCase()}
       </span>
     );
   };
 
-  const filteredReports = filter === 'all'
-    ? reports
-    : reports.filter(r => r.status === filter);
-
-  const hasWebContext = decryptedData?.webContext?.sources?.length > 0;
+  // ─── Input field helper ───────────────────────────────────────
+  const InputField = ({ label, value, onChange, icon: Icon, placeholder, type = 'number' }) => (
+    <div className="space-y-1">
+      <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+        {Icon && <Icon className="w-3 h-3" />}
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
+      />
+    </div>
+  );
 
   return (
     <Layout>
-      {/* Compact Header */}
-      <section className="bg-neo-navy py-3 sm:py-4 border-b-[4px] border-neo-navy">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-              <div className="neo-badge-teal text-xs sm:text-sm">
-                <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
-                {t('authority.badge')}
-              </div>
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-heading font-bold text-neo-cream">
-                {t('authority.title')}
-              </h1>
-            </div>
-            <NeoButton variant="orange" onClick={fetchData} className="!py-1.5 sm:!py-2 !px-2 sm:!px-3 text-xs sm:text-sm">
-              <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden xs:inline">{t('authority.refresh')}</span>
-              <span className="xs:hidden">Refresh</span>
-            </NeoButton>
-          </div>
-        </div>
-      </section>
+      <section className="min-h-screen bg-neo-cream py-3 sm:py-6 px-2 sm:px-6">
+        <div className="max-w-7xl mx-auto">
 
-      {/* Compact Stats Bar */}
-      <section className="bg-neo-cream border-b-[3px] border-neo-navy">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4">
-            <div className="py-2 sm:py-3 text-center border-r-[2px] border-b-[2px] sm:border-b-0 border-neo-navy">
-              <p className="text-lg sm:text-2xl font-heading font-bold text-neo-navy">{stats.total}</p>
-              <p className="text-[10px] sm:text-xs text-neo-navy/60">{t('authority.totalReports')}</p>
-            </div>
-            <div className="py-2 sm:py-3 text-center border-b-[2px] sm:border-b-0 sm:border-r-[2px] border-neo-navy">
-              <p className="text-lg sm:text-2xl font-heading font-bold text-neo-orange">{stats.pending}</p>
-              <p className="text-[10px] sm:text-xs text-neo-navy/60">{t('authority.pendingReview')}</p>
-            </div>
-            <div className="py-2 sm:py-3 text-center border-r-[2px] border-neo-navy">
-              <p className="text-lg sm:text-2xl font-heading font-bold text-neo-teal">{stats.verified}</p>
-              <p className="text-[10px] sm:text-xs text-neo-navy/60">{t('authority.verified')}</p>
-            </div>
-            <div className="py-2 sm:py-3 text-center">
-              <p className="text-lg sm:text-2xl font-heading font-bold text-neo-maroon">{stats.rejected}</p>
-              <p className="text-[10px] sm:text-xs text-neo-navy/60">{t('authority.rejected')}</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Main Content - 3 column layout */}
-      <section className="py-3 sm:py-4 bg-neo-cream min-h-[calc(100vh-200px)]">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
-            {/* Reports List - Narrow Column */}
-            <div className="lg:col-span-3">
-              <NeoCard className="overflow-hidden h-full">
-                <div className="p-2 sm:p-3 border-b-[3px] border-neo-navy bg-neo-navy flex items-center justify-between">
-                  <h2 className="font-heading font-bold text-xs sm:text-sm flex items-center gap-1 sm:gap-2 text-neo-cream">
-                    <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-                    {t('authority.reports')}
-                  </h2>
+          {/* ───── Header ────────────────────────────────────────── */}
+          <div className="mb-4 sm:mb-8">
+            <div className="bg-neo-navy p-3 sm:p-6 border-[3px] sm:border-[4px] border-neo-navy shadow-[4px_4px_0px_0px] sm:shadow-[8px_8px_0px_0px] shadow-neo-navy/30">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+                <div>
+                  <span className="text-neo-orange font-bold text-[10px] sm:text-sm uppercase tracking-wide">
+                    {t('authority.badge')}
+                  </span>
+                  <h1 className="text-xl sm:text-3xl font-black text-neo-cream mt-0.5 sm:mt-1">
+                    {t('authority.title')}
+                  </h1>
+                  <p className="text-neo-cream/60 text-[10px] sm:text-sm mt-0.5 sm:mt-1">
+                    {t('authority.subtitle')}
+                  </p>
                 </div>
-
-                {/* Filter Pills */}
-                <div className="p-1.5 sm:p-2 border-b-[2px] border-neo-navy/20 flex flex-wrap gap-1">
-                  {['all', 'under_review', 'verified', 'rejected'].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setFilter(f)}
-                      className={`
-                        px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold uppercase border-[1px] transition-colors
-                        ${filter === f
-                          ? 'bg-neo-orange text-neo-navy border-neo-orange'
-                          : 'bg-transparent text-neo-navy/60 border-neo-navy/30 hover:border-neo-teal'
-                        }
-                      `}
-                    >
-                      {f === 'all' ? 'All' : f === 'under_review' ? 'Review' : f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="max-h-[200px] sm:max-h-[calc(100vh-350px)] overflow-y-auto divide-y divide-neo-navy/10">
-                  {loading ? (
-                    <div className="p-4 sm:p-6 text-center">
-                      <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 sm:border-3 border-neo-orange border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                      <p className="text-neo-navy/60 text-[10px] sm:text-xs">{t('authority.loadingReports')}</p>
-                    </div>
-                  ) : filteredReports.length === 0 ? (
-                    <div className="p-4 sm:p-6 text-center text-neo-navy/60 text-[10px] sm:text-xs">
-                      {t('authority.noReportsFound')}
-                    </div>
-                  ) : (
-                    filteredReports.map((report) => (
-                      <div
-                        key={report._id}
-                        className={`
-                          p-2 sm:p-3 cursor-pointer transition-colors
-                          ${selectedReport?._id === report._id
-                            ? 'bg-neo-orange'
-                            : 'hover:bg-neo-cream/50'
-                          }
-                        `}
-                        onClick={() => handleDecrypt(report)}
-                      >
-                        <div className="flex items-start justify-between mb-1">
-                          <p className="font-bold text-xs sm:text-sm text-neo-navy truncate max-w-[120px] sm:max-w-none">
-                            {report.sessionId}
-                          </p>
-                          {getStatusBadge(report.status)}
-                        </div>
-                        <p className="text-[9px] sm:text-[10px] text-neo-navy/50">
-                          {new Date(report.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                    ))
+                <div className="flex gap-1.5 sm:gap-3">
+                  {backendHealthy !== null && (
+                    <span className={`flex items-center gap-1 px-2 py-1 text-[10px] sm:text-xs font-bold border-[2px] ${
+                      backendHealthy
+                        ? 'bg-neo-teal/20 border-neo-teal text-neo-teal'
+                        : 'bg-neo-maroon/20 border-neo-maroon text-neo-maroon'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${backendHealthy ? 'bg-neo-teal' : 'bg-neo-maroon'}`} />
+                      {backendHealthy ? 'API Online' : 'API Offline'}
+                    </span>
                   )}
+                  <NeoButton
+                    onClick={handleReset}
+                    variant="orange"
+                    className="!py-1 sm:!py-2 !px-2 sm:!px-4 !text-[10px] sm:!text-sm"
+                  >
+                    <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                    {t('authority.refresh')}
+                  </NeoButton>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ───── Stats Bar ─────────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-8">
+            <NeoCard className="p-2 sm:p-4 text-center">
+              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60">
+                Gross Revenue
+              </p>
+              <p className="text-lg sm:text-2xl font-black text-neo-navy">{stats.revenue}</p>
+            </NeoCard>
+            <NeoCard className="p-2 sm:p-4 text-center">
+              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60">
+                Net Profit
+              </p>
+              <p className={`text-lg sm:text-2xl font-black ${
+                analyticsData?.meta?.is_profitable ? 'text-neo-teal' : analyticsData ? 'text-neo-maroon' : 'text-neo-navy'
+              }`}>
+                {stats.profit}
+              </p>
+            </NeoCard>
+            <NeoCard className="p-2 sm:p-4 text-center">
+              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60">
+                Profit Margin
+              </p>
+              <p className="text-lg sm:text-2xl font-black text-neo-orange">{stats.margin}</p>
+            </NeoCard>
+            <NeoCard className="p-2 sm:p-4 text-center">
+              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60">
+                Conversion Rate
+              </p>
+              <p className="text-lg sm:text-2xl font-black text-neo-teal">{stats.conversion}</p>
+            </NeoCard>
+          </div>
+
+          {/* ───── Main Content Grid ─────────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
+
+            {/* ───── LEFT COLUMN: Input Form ─────────────────────── */}
+            <div className="lg:col-span-4 xl:col-span-3 space-y-3 sm:space-y-4">
+
+              {/* Product Parameters */}
+              <NeoCard className="p-2 sm:p-4">
+                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-neo-orange" />
+                  Product Parameters
+                </h3>
+                <div className="space-y-2 sm:space-y-3">
+                  <InputField
+                    label="Cost Price"
+                    value={product.cost_price}
+                    onChange={v => handleProductChange('cost_price', v)}
+                    icon={DollarSign}
+                    placeholder="500"
+                  />
+                  <InputField
+                    label="Selling Price"
+                    value={product.selling_price}
+                    onChange={v => handleProductChange('selling_price', v)}
+                    icon={DollarSign}
+                    placeholder="999"
+                  />
+                  <InputField
+                    label="Initial Stock"
+                    value={product.initial_stock}
+                    onChange={v => handleProductChange('initial_stock', v)}
+                    icon={Package}
+                    placeholder="100"
+                  />
+                  <InputField
+                    label="Platform Fee %"
+                    value={product.platform_fee_percent}
+                    onChange={v => handleProductChange('platform_fee_percent', v)}
+                    icon={Percent}
+                    placeholder="10"
+                  />
+                  <InputField
+                    label="Shipping / Unit"
+                    value={product.shipping_cost}
+                    onChange={v => handleProductChange('shipping_cost', v)}
+                    icon={ShoppingCart}
+                    placeholder="50"
+                  />
+                  <InputField
+                    label="Marketing Spend"
+                    value={product.marketing_cost}
+                    onChange={v => handleProductChange('marketing_cost', v)}
+                    icon={TrendingUp}
+                    placeholder="5000"
+                  />
                 </div>
               </NeoCard>
+
+              {/* Performance Signals */}
+              <NeoCard className="p-2 sm:p-4">
+                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-neo-teal" />
+                  Performance Signals
+                </h3>
+                <div className="space-y-2 sm:space-y-3">
+                  <InputField
+                    label="Chat Sessions"
+                    value={performance.chats}
+                    onChange={v => handlePerformanceChange('chats', v)}
+                    icon={Users}
+                    placeholder="150"
+                  />
+                  <InputField
+                    label="Orders"
+                    value={performance.orders}
+                    onChange={v => handlePerformanceChange('orders', v)}
+                    icon={ShoppingCart}
+                    placeholder="45"
+                  />
+                  <InputField
+                    label="Units Sold"
+                    value={performance.units_sold}
+                    onChange={v => handlePerformanceChange('units_sold', v)}
+                    icon={Package}
+                    placeholder="52"
+                  />
+                  <InputField
+                    label="Returns"
+                    value={performance.returns}
+                    onChange={v => handlePerformanceChange('returns', v)}
+                    icon={XCircle}
+                    placeholder="3"
+                  />
+                </div>
+              </NeoCard>
+
+              {/* Calculate Button */}
+              <NeoButton
+                onClick={handleCalculate}
+                variant="teal"
+                className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
+                disabled={loading || !product.cost_price || !product.selling_price || !product.initial_stock || parseFloat(product.cost_price) <= 0 || parseFloat(product.selling_price) <= 0}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
+                    Calculating...
+                  </>
+                ) : (
+                  <>
+                    <Calculator className="w-4 h-4 mr-2" />
+                    Calculate Analytics
+                  </>
+                )}
+              </NeoButton>
+
+              {/* Competitive Analysis Button */}
+              {analyticsData && (
+                <NeoButton
+                  onClick={handleCompetitiveAnalysis}
+                  variant="orange"
+                  className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
+                  disabled={compLoading}
+                >
+                  {compLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin mr-2" />
+                      Analyzing Market...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-4 h-4 mr-2" />
+                      Run Competitive Analysis
+                    </>
+                  )}
+                </NeoButton>
+              )}
+
+              {/* Error Display */}
+              {error && (
+                <NeoCard variant="maroon" className="p-2 sm:p-3">
+                  <p className="text-neo-cream font-bold text-[10px] sm:text-xs flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    {error}
+                  </p>
+                </NeoCard>
+              )}
             </div>
 
-            {/* Details Panel - Wide Column */}
-            <div className="lg:col-span-9">
-              <NeoCard className="overflow-hidden h-full">
+            {/* ───── RIGHT COLUMN: Results Panel ─────────────────── */}
+            <div className="lg:col-span-8 xl:col-span-9">
+              <NeoCard className="overflow-hidden">
                 {/* Tab Header */}
-                <div className="border-b-[3px] border-neo-navy bg-neo-teal flex flex-col sm:flex-row items-stretch sm:items-center justify-between">
-                  <div className="flex overflow-x-auto">
-                    <button
-                      onClick={() => setActiveTab('report')}
-                      className={`px-2 sm:px-4 py-2 sm:py-3 font-bold text-[10px] sm:text-sm flex items-center gap-1 sm:gap-2 transition-colors border-r-[1px] sm:border-r-[2px] border-neo-navy/30 whitespace-nowrap
-                        ${activeTab === 'report' ? 'bg-neo-cream text-neo-navy' : 'text-neo-cream hover:bg-neo-teal-dark'}`}
-                    >
-                      <FileSearch className="w-3 h-3 sm:w-4 sm:h-4" />
-                      Report
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('analysis')}
-                      disabled={!decryptedData?.aiAnalysis}
-                      className={`px-2 sm:px-4 py-2 sm:py-3 font-bold text-[10px] sm:text-sm flex items-center gap-1 sm:gap-2 transition-colors border-r-[1px] sm:border-r-[2px] border-neo-navy/30 whitespace-nowrap
-                        ${activeTab === 'analysis' ? 'bg-neo-cream text-neo-navy' : 'text-neo-cream hover:bg-neo-teal-dark'}
-                        ${!decryptedData?.aiAnalysis ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <Brain className="w-3 h-3 sm:w-4 sm:h-4" />
-                      <span className="hidden xs:inline">AI </span>Analysis
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('sources')}
-                      disabled={!hasWebContext}
-                      className={`px-2 sm:px-4 py-2 sm:py-3 font-bold text-[10px] sm:text-sm flex items-center gap-1 sm:gap-2 transition-colors whitespace-nowrap
-                        ${activeTab === 'sources' ? 'bg-neo-cream text-neo-navy' : 'text-neo-cream hover:bg-neo-teal-dark'}
-                        ${!hasWebContext ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <Network className="w-3 h-3 sm:w-4 sm:h-4" />
-                      Sources
-                      {hasWebContext && (
-                        <span className="bg-neo-orange text-neo-navy text-[8px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 font-bold">
-                          {decryptedData.webContext.sources.length}
-                        </span>
-                      )}
-                    </button>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-neo-navy/5 p-2 sm:p-4 border-b-[2px] sm:border-b-[3px] border-neo-navy">
+                  <div className="flex gap-1 mb-2 sm:mb-0">
+                    {['metrics', 'charts', 'insights'].map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-2 sm:px-4 py-1 sm:py-2 text-[10px] sm:text-xs font-bold uppercase border-[2px] transition-all ${
+                          activeTab === tab
+                            ? 'bg-neo-navy text-neo-cream border-neo-navy'
+                            : 'bg-neo-cream text-neo-navy border-neo-navy/30 hover:border-neo-navy'
+                        }`}
+                      >
+                        {tab === 'metrics' && <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                        {tab === 'charts' && <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                        {tab === 'insights' && <Zap className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Actions in header */}
-                  {selectedReport?.status === 'under_review' && decryptedData && !decryptedData.error && (
-                    <div className="flex gap-1 sm:gap-2 p-2 sm:pr-3 border-t sm:border-t-0 border-neo-navy/30">
-                      <NeoButton
-                        onClick={handleVerify}
-                        disabled={actionLoading}
-                        variant="teal"
-                        className="!py-1 sm:!py-1.5 !px-2 sm:!px-3 !text-[10px] sm:!text-xs flex-1 sm:flex-none"
-                      >
-                        {actionLoading ? (
-                          <div className="w-3 h-3 border-2 border-neo-cream border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <>
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Verify
-                          </>
-                        )}
-                      </NeoButton>
-                      <NeoButton
-                        onClick={handleReject}
-                        disabled={actionLoading}
-                        variant="maroon"
-                        className="!py-1 sm:!py-1.5 !px-2 sm:!px-3 !text-[10px] sm:!text-xs flex-1 sm:flex-none"
-                      >
-                        <XCircle className="w-3 h-3 mr-1" />
-                        Reject
-                      </NeoButton>
+                  {/* Insight severity filter pills (only on insights tab) */}
+                  {activeTab === 'insights' && analyticsData && (
+                    <div className="flex gap-1">
+                      {['all', 'success', 'warning', 'critical'].map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setFilter(f)}
+                          className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold border-[2px] transition-all ${
+                            filter === f
+                              ? 'bg-neo-orange text-neo-navy border-neo-orange'
+                              : 'bg-neo-cream text-neo-navy/60 border-neo-navy/20 hover:border-neo-navy/40'
+                          }`}
+                        >
+                          {f.charAt(0).toUpperCase() + f.slice(1)}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
 
                 {/* Tab Content */}
                 <div className="p-2 sm:p-4">
-                  {!selectedReport ? (
+                  {!analyticsData ? (
                     <div className="h-40 sm:h-64 flex items-center justify-center text-neo-navy/40 border-[2px] sm:border-[3px] border-dashed border-neo-navy/30">
                       <div className="text-center">
-                        <Eye className="w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-2 opacity-50" />
-                        <p className="text-xs sm:text-sm">{t('authority.selectReportToDecrypt')}</p>
+                        <BarChart3 className="w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-2 opacity-50" />
+                        <p className="text-xs sm:text-sm">Enter your product data and hit Calculate</p>
+                        <p className="text-[10px] sm:text-xs text-neo-navy/30 mt-1">Fill in the form on the left to get started</p>
                       </div>
                     </div>
-                  ) : decrypting ? (
+                  ) : loading ? (
                     <div className="h-40 sm:h-64 flex items-center justify-center">
                       <div className="text-center">
                         <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 sm:border-4 border-neo-teal border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                        <p className="text-neo-navy/60 text-xs sm:text-sm">{t('authority.decrypting')}</p>
+                        <p className="text-neo-navy/60 text-xs sm:text-sm">Crunching numbers...</p>
                       </div>
                     </div>
-                  ) : decryptedData?.error ? (
-                    <NeoCard variant="maroon" className="p-3 sm:p-4">
-                      <p className="text-neo-cream font-bold text-xs sm:text-sm">{t('authority.decryptionFailed')} {decryptedData.error}</p>
-                    </NeoCard>
-                  ) : decryptedData ? (
+                  ) : (
                     <>
-                      {/* Report Tab */}
-                      {activeTab === 'report' && (
+                      {/* ─── METRICS TAB ────────────────────────────── */}
+                      {activeTab === 'metrics' && (
                         <div className="space-y-3 sm:space-y-4">
-                          {/* Status Banner */}
-                          {selectedReport.status === 'verified' && (
+
+                          {/* Profit Status Banner */}
+                          {analyticsData.meta.is_profitable && (
                             <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-neo-teal/10 border-l-4 border-neo-teal">
                               <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-neo-teal flex-shrink-0" />
-                              <p className="font-bold text-neo-teal text-xs sm:text-sm">{t('authority.reportVerifiedRewarded')}</p>
+                              <p className="font-bold text-neo-teal text-xs sm:text-sm">
+                                Your product is PROFITABLE — {analyticsData.summary_metrics.profit_status}
+                              </p>
                             </div>
                           )}
-                          {selectedReport.status === 'rejected' && (
+                          {!analyticsData.meta.is_profitable && !analyticsData.meta.is_break_even && (
                             <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-neo-maroon/10 border-l-4 border-neo-maroon">
                               <XCircle className="w-4 h-4 sm:w-5 sm:h-5 text-neo-maroon flex-shrink-0" />
-                              <p className="font-bold text-neo-maroon text-xs sm:text-sm">{t('authority.reportRejected')}</p>
+                              <p className="font-bold text-neo-maroon text-xs sm:text-sm">
+                                Your product is at a LOSS — review your pricing strategy
+                              </p>
+                            </div>
+                          )}
+                          {analyticsData.meta.is_break_even && (
+                            <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-neo-orange/10 border-l-4 border-neo-orange">
+                              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-neo-orange flex-shrink-0" />
+                              <p className="font-bold text-neo-orange text-xs sm:text-sm">
+                                BREAK EVEN — no profit, no loss
+                              </p>
                             </div>
                           )}
 
-                          {/* Reporter Info & Jury Verdict */}
+                          {/* Revenue & Cost Cards */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                            {/* Reporter Info */}
+                            {/* Revenue Card */}
                             <NeoCard className="p-2 sm:p-4">
                               <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2">
-                                <User className="w-3 h-3 sm:w-4 sm:h-4" />
-                                Reporter
+                                <DollarSign className="w-3 h-3 sm:w-4 sm:h-4" />
+                                Revenue
                               </p>
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] sm:text-sm text-neo-navy/70 font-mono truncate max-w-[100px] sm:max-w-[150px]">
-                                  {selectedReport.reporterWallet ? `${selectedReport.reporterWallet.slice(0, 8)}...${selectedReport.reporterWallet.slice(-6)}` : 'Unknown'}
-                                </span>
-                                <span className={`font-bold text-sm sm:text-lg ${selectedReport.reporterReputation >= 70 ? 'text-neo-teal' :
-                                    selectedReport.reporterReputation >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
-                                  }`}>
-                                  Rep: {selectedReport.reporterReputation || 50}
-                                </span>
+                              <div className="space-y-1 sm:space-y-2">
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Gross Revenue</span>
+                                  <span className="font-bold text-neo-navy">
+                                    ${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Net Revenue</span>
+                                  <span className="font-bold text-neo-teal">
+                                    ${Number(analyticsData.summary_metrics.net_revenue).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Effective Price</span>
+                                  <span className="font-bold text-neo-navy">
+                                    ${Number(analyticsData.summary_metrics.effective_selling_price).toLocaleString()}
+                                  </span>
+                                </div>
                               </div>
                             </NeoCard>
 
-                            {/* Jury Verdict */}
+                            {/* Costs Card */}
                             <NeoCard className="p-2 sm:p-4">
                               <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2">
-                                <Users className="w-3 h-3 sm:w-4 sm:h-4" />
-                                Jury Verdict
+                                <TrendingDown className="w-3 h-3 sm:w-4 sm:h-4" />
+                                Costs
                               </p>
-                              {selectedReport.juryVotes?.total > 0 ? (
-                                <div className="space-y-1 sm:space-y-2">
-                                  <div className="flex items-center justify-between text-xs sm:text-sm">
-                                    <span className="flex items-center gap-1 text-neo-teal font-bold">
-                                      <ThumbsUp className="w-3 h-3 sm:w-4 sm:h-4" />
-                                      {selectedReport.juryVotes.validPercent}%
-                                    </span>
-                                    <span className="text-neo-navy/60 text-[10px] sm:text-sm">
-                                      {selectedReport.juryVotes.total} voters
-                                    </span>
-                                    <span className="flex items-center gap-1 text-neo-maroon font-bold">
-                                      {selectedReport.juryVotes.invalidPercent}%
-                                      <ThumbsDown className="w-3 h-3 sm:w-4 sm:h-4" />
-                                    </span>
+                              <div className="space-y-1 sm:space-y-2">
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Product Cost</span>
+                                  <span className="font-bold text-neo-maroon">
+                                    ${Number(analyticsData.summary_metrics.product_cost).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Platform Fee</span>
+                                  <span className="font-bold text-neo-maroon">
+                                    ${Number(analyticsData.summary_metrics.platform_fee).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Shipping</span>
+                                  <span className="font-bold text-neo-maroon">
+                                    ${Number(analyticsData.summary_metrics.shipping_total).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm">
+                                  <span className="text-neo-navy/70">Marketing</span>
+                                  <span className="font-bold text-neo-maroon">
+                                    ${Number(analyticsData.summary_metrics.marketing_cost).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs sm:text-sm border-t border-neo-navy/10 pt-1">
+                                  <span className="text-neo-navy font-bold">Total Cost</span>
+                                  <span className="font-black text-neo-maroon">
+                                    ${Number(analyticsData.summary_metrics.total_cost).toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </NeoCard>
+                          </div>
+
+                          {/* Quick Metrics — 4 metric cards */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                            <div className="p-2 sm:p-3 bg-neo-navy text-center">
+                              <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Profit / Unit</p>
+                              <p className={`text-lg sm:text-2xl font-bold ${
+                                Number(analyticsData.summary_metrics.profit_per_unit) >= 0 ? 'text-neo-teal' : 'text-neo-maroon'
+                              }`}>
+                                ${Number(analyticsData.summary_metrics.profit_per_unit).toFixed(0)}
+                              </p>
+                            </div>
+                            <div className="p-2 sm:p-3 bg-neo-navy text-center">
+                              <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Sell-Through</p>
+                              <p className="text-neo-cream font-bold text-base sm:text-xl">
+                                {Number(analyticsData.summary_metrics.sell_through_rate).toFixed(1)}%
+                              </p>
+                            </div>
+                            <div className="p-2 sm:p-3 bg-neo-navy text-center">
+                              <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Return Rate</p>
+                              <p className="text-neo-orange font-bold text-base sm:text-xl">
+                                {Number(analyticsData.summary_metrics.return_rate).toFixed(1)}%
+                              </p>
+                            </div>
+                            <div className="p-2 sm:p-3 bg-neo-navy text-center">
+                              <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">ROI</p>
+                              <p className="text-neo-teal font-bold text-base sm:text-xl">
+                                {analyticsData.summary_metrics.roi != null
+                                  ? `${Number(analyticsData.summary_metrics.roi).toFixed(1)}%`
+                                  : 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Inventory Status */}
+                          <div className="p-3 sm:p-4 bg-neo-orange/10 border-[2px] border-neo-orange">
+                            <p className="text-neo-navy/60 text-xs">Inventory</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="font-bold text-neo-navy text-lg sm:text-2xl">
+                                {analyticsData.summary_metrics.remaining_stock} units remaining
+                              </span>
+                              <span className="text-neo-navy/60 text-xs sm:text-sm">
+                                {analyticsData.summary_metrics.net_units_sold} sold (net)
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Warnings */}
+                          {analyticsData.meta.warnings?.length > 0 && (
+                            <div className="space-y-1">
+                              {analyticsData.meta.warnings.map((w, i) => (
+                                <div key={i} className="flex items-center gap-2 p-2 bg-neo-orange/10 border-l-4 border-neo-orange text-xs text-neo-navy/70">
+                                  <AlertTriangle className="w-3 h-3 text-neo-orange flex-shrink-0" />
+                                  {w}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ─── CHARTS TAB ─────────────────────────────── */}
+                      {activeTab === 'charts' && (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-8 h-8 bg-neo-orange flex items-center justify-center">
+                              <BarChart3 className="w-5 h-5 text-neo-navy" />
+                            </div>
+                            <p className="font-bold text-neo-navy">Charts & Visualizations</p>
+                          </div>
+
+                          {/* Revenue Breakdown Bar Chart */}
+                          <div>
+                            <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2">
+                              {analyticsData.charts.revenue_breakdown.title}
+                            </p>
+                            <NeoCard className="p-3 sm:p-4">
+                              <div className="space-y-2">
+                                {analyticsData.charts.revenue_breakdown.labels.map((label, i) => {
+                                  const dataset = analyticsData.charts.revenue_breakdown.datasets[0];
+                                  const value = dataset?.values?.[i] || 0;
+                                  const maxVal = Math.max(...(dataset?.values || [1]));
+                                  const pct = maxVal > 0 ? (Number(value) / Number(maxVal)) * 100 : 0;
+                                  const color = dataset?.colors?.[i] || '#1a1a2e';
+                                  return (
+                                    <div key={label}>
+                                      <div className="flex justify-between text-xs text-neo-navy/60 mb-1">
+                                        <span className="font-bold">{label}</span>
+                                        <span className="font-mono">${Number(value).toLocaleString()}</span>
+                                      </div>
+                                      <div className="w-full h-4 bg-neo-navy/10 border border-neo-navy/20">
+                                        <div
+                                          className="h-full transition-all"
+                                          style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: color }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </NeoCard>
+                          </div>
+
+                          {/* Sales Funnel */}
+                          <div>
+                            <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2">
+                              {analyticsData.charts.sales_funnel.title}
+                            </p>
+                            <NeoCard className="p-3 sm:p-4">
+                              <div className="space-y-2">
+                                {analyticsData.charts.sales_funnel.stages.map((stage, i) => (
+                                  <div key={stage.stage} className="flex items-center gap-3">
+                                    <div className="w-24 sm:w-32 text-xs font-bold text-neo-navy truncate">{stage.stage}</div>
+                                    <div className="flex-1 h-6 bg-neo-navy/10 border border-neo-navy/20 relative">
+                                      <div
+                                        className="h-full transition-all flex items-center justify-end pr-2"
+                                        style={{
+                                          width: `${Math.max(Number(stage.percentage), 5)}%`,
+                                          backgroundColor: stage.color,
+                                        }}
+                                      >
+                                        <span className="text-[10px] font-bold text-white drop-shadow">
+                                          {stage.value}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="w-12 text-right text-xs font-bold text-neo-navy/60">
+                                      {Number(stage.percentage).toFixed(0)}%
+                                    </div>
                                   </div>
-                                  <div className="h-2 sm:h-3 bg-neo-cream border-[1px] sm:border-[2px] border-neo-navy flex overflow-hidden">
-                                    <div className="bg-neo-teal h-full" style={{ width: `${selectedReport.juryVotes.validPercent}%` }} />
-                                    <div className="bg-neo-maroon h-full" style={{ width: `${selectedReport.juryVotes.invalidPercent}%` }} />
+                                ))}
+                              </div>
+                            </NeoCard>
+                          </div>
+
+                          {/* Inventory Status Chart */}
+                          <div>
+                            <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2">
+                              {analyticsData.charts.inventory_status.title}
+                            </p>
+                            <NeoCard className="p-3 sm:p-4">
+                              <div className="grid grid-cols-3 gap-3">
+                                {analyticsData.charts.inventory_status.segments.map(seg => (
+                                  <div key={seg.label} className="text-center p-3 border-[2px] border-neo-navy">
+                                    <p className="text-[10px] sm:text-xs text-neo-navy/60 uppercase font-bold">{seg.label}</p>
+                                    <p className="text-xl sm:text-2xl font-black" style={{ color: seg.color || '#1a1a2e' }}>
+                                      {Number(seg.value)}
+                                    </p>
+                                    <p className="text-[10px] text-neo-navy/40">
+                                      {analyticsData.charts.inventory_status.total > 0
+                                        ? `${((Number(seg.value) / analyticsData.charts.inventory_status.total) * 100).toFixed(1)}%`
+                                        : '0%'}
+                                    </p>
                                   </div>
-                                  <p className="text-center text-[10px] sm:text-sm font-bold">
-                                    Jury says: <span className={selectedReport.juryVotes.juryVerdict === 'valid' ? 'text-neo-teal' : 'text-neo-maroon'}>
-                                      {selectedReport.juryVotes.juryVerdict === 'valid' ? 'VALID' : 'INVALID'}
-                                    </span>
+                                ))}
+                              </div>
+                              <div className="mt-3 text-center text-xs text-neo-navy/50">
+                                Total Stock: {analyticsData.charts.inventory_status.total}
+                              </div>
+                            </NeoCard>
+                          </div>
+
+                          {/* Cost Breakdown */}
+                          <div>
+                            <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2">Cost Breakdown</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              {analyticsData.charts.cost_breakdown.map(cost => (
+                                <div
+                                  key={cost.label}
+                                  className="p-3 bg-neo-navy text-center"
+                                >
+                                  <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">{cost.label}</p>
+                                  <p className="text-neo-cream font-bold text-sm sm:text-lg">
+                                    ${Number(cost.value).toLocaleString()}
                                   </p>
                                 </div>
-                              ) : (
-                                <p className="text-neo-navy/50 text-[10px] sm:text-sm">No jury votes yet</p>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Competitive Analysis Results */}
+                          {competitiveData && (
+                            <div className="mt-4">
+                              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2 flex items-center gap-1">
+                                <Brain className="w-3 h-3" />
+                                Competitive Intelligence
+                              </p>
+
+                              {/* Market Position */}
+                              <NeoCard className="p-3 sm:p-4 mb-3">
+                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Your Market Position</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  <div className="p-2 bg-neo-navy text-center">
+                                    <p className="text-neo-cream/60 text-[8px] uppercase">Position</p>
+                                    <p className="text-neo-orange font-bold text-xs capitalize">
+                                      {competitiveData.my_position.position.replace('_', ' ')}
+                                    </p>
+                                  </div>
+                                  <div className="p-2 bg-neo-navy text-center">
+                                    <p className="text-neo-cream/60 text-[8px] uppercase">vs Market Avg</p>
+                                    <p className={`font-bold text-xs ${
+                                      competitiveData.my_position.price_vs_market_avg_percent <= 0 ? 'text-neo-teal' : 'text-neo-maroon'
+                                    }`}>
+                                      {competitiveData.my_position.price_vs_market_avg_percent > 0 ? '+' : ''}
+                                      {competitiveData.my_position.price_vs_market_avg_percent.toFixed(1)}%
+                                    </p>
+                                  </div>
+                                  <div className="p-2 bg-neo-navy text-center">
+                                    <p className="text-neo-cream/60 text-[8px] uppercase">Rank</p>
+                                    <p className="text-neo-cream font-bold text-xs">
+                                      {competitiveData.my_position.rank_estimate}
+                                    </p>
+                                  </div>
+                                  <div className="p-2 bg-neo-navy text-center">
+                                    <p className="text-neo-cream/60 text-[8px] uppercase">Competitors</p>
+                                    <p className="text-neo-cream font-bold text-xs">
+                                      {competitiveData.meta.competitor_count}
+                                    </p>
+                                  </div>
+                                </div>
+                              </NeoCard>
+
+                              {/* Market Summary */}
+                              <NeoCard className="p-3 sm:p-4 mb-3">
+                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Market Prices</p>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="text-center">
+                                    <p className="text-[8px] text-neo-navy/50 uppercase">Min</p>
+                                    <p className="font-bold text-neo-teal text-sm">${competitiveData.market_summary.min_price}</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-[8px] text-neo-navy/50 uppercase">Avg</p>
+                                    <p className="font-bold text-neo-navy text-sm">${competitiveData.market_summary.avg_market_price.toFixed(0)}</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-[8px] text-neo-navy/50 uppercase">Median</p>
+                                    <p className="font-bold text-neo-navy text-sm">${competitiveData.market_summary.median_price}</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-[8px] text-neo-navy/50 uppercase">Max</p>
+                                    <p className="font-bold text-neo-maroon text-sm">${competitiveData.market_summary.max_price}</p>
+                                  </div>
+                                </div>
+                              </NeoCard>
+
+                              {/* Competitor Samples */}
+                              {competitiveData.competitor_sample?.length > 0 && (
+                                <NeoCard className="p-3 sm:p-4">
+                                  <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Top Competitors</p>
+                                  <div className="space-y-2">
+                                    {competitiveData.competitor_sample.map((comp, i) => (
+                                      <div key={i} className="flex items-center justify-between p-2 border-[2px] border-neo-navy/10 hover:border-neo-navy/30 transition-all">
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-bold text-neo-navy truncate">{comp.title}</p>
+                                          <p className="text-[10px] text-neo-navy/50">
+                                            {comp.rating && `★ ${comp.rating}`}
+                                            {comp.review_count && ` (${comp.review_count} reviews)`}
+                                          </p>
+                                        </div>
+                                        <div className="text-right ml-2">
+                                          <p className="font-bold text-sm text-neo-navy">${comp.price}</p>
+                                          <p className={`text-[10px] font-bold ${
+                                            comp.price_vs_mine < 0 ? 'text-neo-teal' : comp.price_vs_mine > 0 ? 'text-neo-maroon' : 'text-neo-navy/50'
+                                          }`}>
+                                            {comp.price_vs_mine > 0 ? '+' : ''}{comp.price_vs_mine.toFixed(1)}%
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </NeoCard>
                               )}
-                            </NeoCard>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ─── INSIGHTS TAB ───────────────────────────── */}
+                      {activeTab === 'insights' && (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-8 h-8 bg-neo-orange flex items-center justify-center">
+                              <Zap className="w-5 h-5 text-neo-navy" />
+                            </div>
+                            <p className="font-bold text-neo-navy">Business Insights</p>
+                            <span className="ml-auto text-[10px] sm:text-xs text-neo-navy/50">
+                              {filteredInsights.length} insight{filteredInsights.length !== 1 ? 's' : ''}
+                            </span>
                           </div>
 
-                          {/* Decrypted Content */}
-                          <div>
-                            <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2">{t('authority.decryptedReport')}</p>
-                            <NeoCard className="p-2 sm:p-4">
-                              <p className="whitespace-pre-wrap text-neo-navy text-xs sm:text-sm">{decryptedData.decrypted}</p>
-                            </NeoCard>
-                          </div>
-
-                          {/* Quick AI Summary */}
-                          {decryptedData.aiAnalysis && (
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                              <div className="p-2 sm:p-3 bg-neo-navy text-center">
-                                <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Possibility</p>
-                                <p className={`text-lg sm:text-2xl font-bold ${decryptedData.aiAnalysis.possibilityScore >= 70 ? 'text-neo-teal' :
-                                    decryptedData.aiAnalysis.possibilityScore >= 40 ? 'text-neo-orange' : 'text-neo-maroon'
-                                  }`}>
-                                  {decryptedData.aiAnalysis.possibilityScore}%
-                                </p>
-                              </div>
-                              <div className="p-2 sm:p-3 bg-neo-navy text-center">
-                                <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Category</p>
-                                <p className="text-neo-cream font-bold capitalize text-xs sm:text-sm">{decryptedData.aiAnalysis.category}</p>
-                              </div>
-                              <div className="p-2 sm:p-3 bg-neo-navy text-center">
-                                <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Urgency</p>
-                                <p className="text-neo-orange font-bold text-base sm:text-xl">{decryptedData.aiAnalysis.urgencyScore}/10</p>
-                              </div>
-                              <div className="p-2 sm:p-3 bg-neo-navy text-center">
-                                <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">Action</p>
-                                <p className="text-neo-teal font-bold capitalize text-xs sm:text-sm">{decryptedData.aiAnalysis.suggestedAction}</p>
-                              </div>
+                          {filteredInsights.length === 0 ? (
+                            <div className="h-32 flex items-center justify-center text-neo-navy/40 border-[2px] border-dashed border-neo-navy/30">
+                              <p className="text-xs sm:text-sm">No insights match this filter</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {filteredInsights.map((insight, i) => {
+                                const style = severityStyles[insight.severity] || severityStyles.info;
+                                const Icon = style.icon;
+                                return (
+                                  <div
+                                    key={i}
+                                    className={`p-3 sm:p-4 border-l-4 ${style.bg} ${style.border}`}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${style.text}`} />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          {getSeverityBadge(insight.severity)}
+                                          <span className="text-[10px] sm:text-xs text-neo-navy/40 uppercase font-bold">
+                                            {insight.category}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs sm:text-sm text-neo-navy">{insight.message}</p>
+                                        {(insight.metric_value != null || insight.threshold != null) && (
+                                          <div className="flex gap-3 mt-1.5 text-[10px] text-neo-navy/50">
+                                            {insight.metric_value != null && (
+                                              <span>Value: <strong>{Number(insight.metric_value).toFixed(1)}</strong></span>
+                                            )}
+                                            {insight.threshold != null && (
+                                              <span>Threshold: <strong>{Number(insight.threshold).toFixed(1)}</strong></span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
-                          {/* Evidence Files - Images and Videos */}
-                          {decryptedData.files && decryptedData.files.length > 0 && (
-                            <div className="mt-4 sm:mt-6">
-                              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2 sm:mb-3">Evidence Files</p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-                                {decryptedData.files.map((file, index) => {
-                                  const isImage = file.type?.startsWith('image/');
-                                  const isVideo = file.type?.startsWith('video/');
-                                  // Find matching evidence analysis
-                                  const analysis = decryptedData.evidenceAnalysis?.find(a => a.filename === file.filename);
-
+                          {/* Competitive Insights */}
+                          {competitiveData?.insights?.length > 0 && (
+                            <div className="mt-6">
+                              <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-2 flex items-center gap-1">
+                                <Brain className="w-3 h-3" />
+                                Competitive Insights
+                              </p>
+                              <div className="space-y-2">
+                                {competitiveData.insights.map((insight, i) => {
+                                  const sev = insight.severity === 'opportunity' ? 'success' : insight.severity;
+                                  const style = severityStyles[sev] || severityStyles.info;
+                                  const Icon = style.icon;
                                   return (
-                                    <NeoCard key={index} className="p-3 overflow-hidden">
-                                      {isImage && file.dataUrl ? (
-                                        <div className="space-y-2">
-                                          <div className="relative">
-                                            <img
-                                              src={file.dataUrl}
-                                              alt={file.filename || `Evidence ${index + 1}`}
-                                              className="w-full h-48 object-cover rounded border-[2px] border-neo-navy"
-                                            />
-                                            {/* AI Detection Badge */}
-                                            {analysis && analysis.isAnalyzable && (
-                                              <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-bold uppercase border-[2px] ${analysis.isAIGenerated
-                                                  ? 'bg-neo-maroon text-neo-cream border-neo-maroon'
-                                                  : analysis.isValidEvidence === false
-                                                    ? 'bg-neo-orange text-neo-navy border-neo-orange'
-                                                    : 'bg-neo-teal text-neo-cream border-neo-teal'
-                                                }`}>
-                                                {analysis.isAIGenerated
-                                                  ? '⚠️ AI GENERATED'
-                                                  : analysis.isValidEvidence === false
-                                                    ? '⚠️ INVALID'
-                                                    : '✓ VALID'}
-                                              </div>
-                                            )}
-                                          </div>
-                                          <p className="text-xs text-neo-navy/70 truncate font-bold">
-                                            {file.filename || `Image ${index + 1}`}
-                                          </p>
-                                          {/* AI Analysis Details */}
-                                          {analysis && analysis.isAnalyzable && (
-                                            <div className={`p-2 text-xs border-l-4 ${analysis.isAIGenerated
-                                                ? 'bg-neo-maroon/10 border-neo-maroon'
-                                                : analysis.isValidEvidence === false
-                                                  ? 'bg-neo-orange/10 border-neo-orange'
-                                                  : 'bg-neo-teal/10 border-neo-teal'
-                                              }`}>
-                                              <div className="flex justify-between mb-1">
-                                                <span className="font-bold">Confidence:</span>
-                                                <span>{analysis.confidence}%</span>
-                                              </div>
-                                              <p className="text-neo-navy/70">{analysis.verdict}</p>
-                                              {analysis.evidenceAssessment && (
-                                                <p className="mt-1 text-neo-navy/60 italic">{analysis.evidenceAssessment}</p>
-                                              )}
-                                            </div>
-                                          )}
+                                    <div key={i} className={`p-3 border-l-4 ${style.bg} ${style.border}`}>
+                                      <div className="flex items-start gap-2">
+                                        <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${style.text}`} />
+                                        <div>
+                                          <span className="text-[10px] text-neo-navy/40 uppercase font-bold">{insight.category}</span>
+                                          <p className="text-xs sm:text-sm text-neo-navy">{insight.message}</p>
                                         </div>
-                                      ) : isVideo && file.dataUrl ? (
-                                        <div className="space-y-2">
-                                          <video
-                                            src={file.dataUrl}
-                                            controls
-                                            className="w-full h-48 object-cover rounded border-[2px] border-neo-navy"
-                                          >
-                                            Your browser does not support the video tag.
-                                          </video>
-                                          <p className="text-xs text-neo-navy/70 truncate font-bold">
-                                            {file.filename || `Video ${index + 1}`}
-                                          </p>
-                                          {analysis && (
-                                            <div className="p-2 text-xs bg-neo-orange/10 border-l-4 border-neo-orange">
-                                              <p className="text-neo-navy/70">{analysis.verdict}</p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <div className="space-y-2">
-                                          <div className="w-full h-48 bg-neo-navy/10 border-[2px] border-neo-navy flex items-center justify-center rounded">
-                                            <FileText className="w-12 h-12 text-neo-navy/40" />
-                                          </div>
-                                          <p className="text-xs text-neo-navy/70 truncate font-bold">
-                                            {file.filename || `File ${index + 1}`}
-                                          </p>
-                                          <a
-                                            href={file.dataUrl}
-                                            download={file.filename}
-                                            className="text-xs text-neo-orange hover:underline flex items-center gap-1"
-                                          >
-                                            <ExternalLink className="w-3 h-3" />
-                                            Download
-                                          </a>
-                                        </div>
-                                      )}
-                                    </NeoCard>
+                                      </div>
+                                    </div>
                                   );
                                 })}
                               </div>
@@ -542,87 +945,8 @@ export default function Authority() {
                           )}
                         </div>
                       )}
-
-                      {/* Analysis Tab */}
-                      {activeTab === 'analysis' && decryptedData.aiAnalysis && (
-                        <div className="space-y-4">
-                          <div className="flex items-center gap-2 mb-4">
-                            <div className="w-8 h-8 bg-neo-orange flex items-center justify-center">
-                              <Bot className="w-5 h-5 text-neo-navy" />
-                            </div>
-                            <p className="font-bold text-neo-navy">{t('authority.aiAnalysis')}</p>
-                          </div>
-
-                          {/* Verdict */}
-                          {decryptedData.aiAnalysis.verdict && (
-                            <div className="p-4 bg-neo-navy border-l-4 border-neo-orange">
-                              <p className="text-neo-cream italic">"{decryptedData.aiAnalysis.verdict}"</p>
-                            </div>
-                          )}
-
-                          {/* Possibility Score Bar */}
-                          <div>
-                            <div className="flex justify-between text-xs text-neo-navy/60 mb-1">
-                              <span>Possibility of Truth</span>
-                              <span className="font-bold text-neo-orange">{decryptedData.aiAnalysis.possibilityScore}%</span>
-                            </div>
-                            <div className="w-full h-4 bg-neo-navy/10 border border-neo-navy/20">
-                              <div
-                                className={`h-full transition-all ${decryptedData.aiAnalysis.possibilityScore >= 70 ? 'bg-neo-teal' :
-                                  decryptedData.aiAnalysis.possibilityScore >= 40 ? 'bg-neo-orange' : 'bg-neo-maroon'
-                                  }`}
-                                style={{ width: `${decryptedData.aiAnalysis.possibilityScore}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Metrics Grid */}
-                          <div className="grid grid-cols-4 gap-3">
-                            <div className="p-3 bg-neo-cream border-[2px] border-neo-navy">
-                              <p className="text-neo-navy/60 text-xs">{t('authority.spam')}</p>
-                              <p className={`font-bold text-lg ${decryptedData.aiAnalysis.isSpam ? 'text-neo-maroon' : 'text-neo-teal'}`}>
-                                {decryptedData.aiAnalysis.isSpam ? 'Yes' : 'No'}
-                              </p>
-                            </div>
-                            <div className="p-3 bg-neo-cream border-[2px] border-neo-navy">
-                              <p className="text-neo-navy/60 text-xs">{t('authority.urgency')}</p>
-                              <p className="text-neo-orange font-bold text-lg">{decryptedData.aiAnalysis.urgencyScore}/10</p>
-                            </div>
-                            <div className="p-3 bg-neo-cream border-[2px] border-neo-navy">
-                              <p className="text-neo-navy/60 text-xs">{t('authority.category')}</p>
-                              <p className="text-neo-navy capitalize font-bold">{decryptedData.aiAnalysis.category}</p>
-                            </div>
-                            <div className="p-3 bg-neo-cream border-[2px] border-neo-navy">
-                              <p className="text-neo-navy/60 text-xs">{t('authority.credibility')}</p>
-                              <p className="text-neo-orange font-bold text-lg">{decryptedData.aiAnalysis.credibilityScore}/10</p>
-                            </div>
-                          </div>
-
-                          {/* Web Context Relevance */}
-                          {decryptedData.aiAnalysis.webContextRelevance && (
-                            <div className="p-4 bg-neo-teal/10 border-l-4 border-neo-teal">
-                              <p className="text-neo-navy/60 text-xs mb-1">Web Context Analysis</p>
-                              <p className="text-neo-navy text-sm">{decryptedData.aiAnalysis.webContextRelevance}</p>
-                            </div>
-                          )}
-
-                          {/* Suggested Action */}
-                          <div className="p-4 bg-neo-orange/10 border-[2px] border-neo-orange">
-                            <p className="text-neo-navy/60 text-xs">{t('authority.suggestedAction')}</p>
-                            <p className="capitalize font-bold text-neo-orange text-2xl">{decryptedData.aiAnalysis.suggestedAction}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Sources Tab */}
-                      {activeTab === 'sources' && hasWebContext && (
-                        <SourceNetwork
-                          webContext={decryptedData.webContext}
-                          onChainHash={selectedReport?.txHash}
-                        />
-                      )}
                     </>
-                  ) : null}
+                  )}
                 </div>
               </NeoCard>
             </div>
@@ -632,4 +956,3 @@ export default function Authority() {
     </Layout>
   );
 }
-
