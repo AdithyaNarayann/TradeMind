@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, Settings, Code, Menu, X } from 'lucide-react';
+import { LayoutDashboard, BarChart3, Settings, Code, Menu, X, Key } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../context/I18nContext';
 import LanguageSwitcher from './LanguageSwitcher';
@@ -16,6 +16,7 @@ export default function Navbar() {
     { path: '/authority', label: t('navbar.authority'), icon: BarChart3 },
     { path: '/jury', label: t('navbar.jury'), icon: Settings },
     { path: '/wallet', label: t('navbar.wallet'), icon: Code },
+    { path: '/api-access', label: 'API', icon: Key },
   ];
 
   return (

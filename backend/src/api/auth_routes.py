@@ -84,11 +84,41 @@ def _create_token(user_id: int, email: str, full_name: str) -> str:
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Dependency: decode JWT and return user dict."""
+    """Dependency: decode JWT **or** validate a tm_ API key and return user dict."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    token = credentials.credentials
+
+    # ── API-key path (starts with tm_) ─────────────────────────────
+    if token.startswith("tm_"):
+        import aiomysql
+        async with get_conn() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(
+                    """SELECT ak.user_id, u.email, u.full_name
+                       FROM api_keys ak
+                       JOIN users u ON u.id = ak.user_id
+                       WHERE ak.api_key = %s AND ak.is_active = 1""",
+                    (token,),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+                # touch last_used_at
+                await cur.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE api_key = %s",
+                    (token,),
+                )
+        return {
+            "id": int(row["user_id"]),
+            "email": row["email"],
+            "full_name": row["full_name"],
+        }
+
+    # ── JWT path ───────────────────────────────────────────────────
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return {
             "id": int(payload["sub"]),
             "email": payload["email"],
