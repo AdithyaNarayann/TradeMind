@@ -12,7 +12,7 @@ export default function Navbar() {
 
   const navLinks = [
     { path: '/', label: t('navbar.home'), icon: null },
-    { path: '/reporter', label: t('navbar.reporter'), icon: LayoutDashboard },
+    { path: '/products', label: 'Products', icon: LayoutDashboard },
     { path: '/authority', label: t('navbar.authority'), icon: BarChart3 },
     { path: '/jury', label: t('navbar.jury'), icon: Settings },
     { path: '/wallet', label: t('navbar.wallet'), icon: Code },

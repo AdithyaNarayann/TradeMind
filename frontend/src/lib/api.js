@@ -139,10 +139,16 @@ export async function calculateAnalytics(data) {
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Calculation failed' }));
+    const err = await response.json().catch(() => ({}));
     let message = 'Calculation failed';
-    if (Array.isArray(err.detail)) {
+    // Custom backend format: { details: [...] } with field/message/type
+    if (Array.isArray(err.details)) {
+      message = err.details.map(e => `${e.field || 'unknown'}: ${e.message}`).join('; ');
+      // Standard FastAPI format: { detail: [...] }
+    } else if (Array.isArray(err.detail)) {
       message = err.detail.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`).join('; ');
+    } else if (err.message) {
+      message = err.message;
     } else if (typeof err.detail === 'string') {
       message = err.detail;
     }
