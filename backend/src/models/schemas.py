@@ -121,6 +121,29 @@ class BuyerOffer(BaseModel):
     message: Optional[str] = Field(default=None, max_length=1000, description="Buyer's message")
 
 
+class ChatMessage(BaseModel):
+    """Free-text chat message from the buyer (may or may not contain a price)."""
+    
+    message: str = Field(..., min_length=1, max_length=2000, description="Buyer's free-text message")
+
+
+class ChatResponse(BaseModel):
+    """Response to a chat message."""
+    
+    session_id: UUID
+    message: str
+    has_price_offer: bool = False
+    extracted_price: Optional[Decimal] = None
+    
+    # If a price was found, these are populated (same as NegotiationTurnResponse)
+    round_number: Optional[int] = None
+    status: Optional[NegotiationStatus] = None
+    pricing: Optional["PricingDecision"] = None
+    can_continue: Optional[bool] = None
+    rounds_remaining: Optional[int] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 class NegotiationTurnRequest(BaseModel):
     """Request to process a negotiation turn."""
     
