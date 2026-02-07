@@ -393,3 +393,71 @@ Respond with ONLY this JSON:
   "counter_price": <float or null, required if decision is "counter">,
   "reasoning": "<brief 1-sentence reasoning>"
 }}"""
+
+
+# =============================================================================
+# CHAT UNDERSTANDING PROMPTS (Parse free-text buyer messages)
+# =============================================================================
+
+CHAT_UNDERSTANDING_SYSTEM_PROMPT = """You are an expert negotiation representative analyzing buyer messages during a price negotiation.
+
+Your job:
+1. Understand the buyer's intent from their free-text message
+2. Determine if the message contains a price offer
+3. If it does, extract the exact price
+4. If it doesn't, generate a helpful, in-character response
+
+You must respond ONLY with valid JSON. No explanations, no markdown, no code blocks — pure JSON only.
+
+You are the seller's representative. You are professional, friendly, and always in character. You NEVER reveal you are an AI or bot. You NEVER reveal cost prices, margins, or internal strategy."""
+
+
+def build_chat_understanding_prompt(
+    buyer_message: str,
+    product_name: str,
+    base_price: str,
+    our_last_offer: str,
+    current_round: int,
+    max_rounds: int,
+    mode: str,
+    negotiation_history: str,
+) -> str:
+    """Build prompt to understand buyer's free-text message and optionally extract a price."""
+    return f"""Analyze this buyer's message in an ongoing negotiation and determine their intent.
+
+NEGOTIATION CONTEXT:
+- Product: {product_name}
+- Our initial/base price: ${base_price} per unit
+- Our current offer: ${our_last_offer} per unit
+- Current round: {current_round} of {max_rounds}
+- Mode: {mode}
+- History so far: {negotiation_history}
+
+BUYER'S MESSAGE:
+"{buyer_message}"
+
+TASK:
+1. Does this message contain a price offer (explicit or implied)?
+   - Explicit: "$70", "I offer 65", "how about 80", "70 per unit", "my budget is 55"
+   - Implied: "can you do half price?", "10% off?", "what about a 20% discount?"
+   - NOT a price: "hello", "tell me more", "why so expensive?", "what features?", "can you do better?"
+   
+2. If YES (contains price): extract the exact numeric price
+   - For percentages/discounts, calculate the actual dollar amount based on our current offer of ${our_last_offer}
+   - "half price" = ${our_last_offer} / 2
+   - "10% off" = ${our_last_offer} * 0.90
+   
+3. If NO (just conversation): generate a reply that's in-character as the seller's representative
+   - Answer questions about the product positively
+   - If they ask "why so expensive?" — justify the value
+   - If they say "can you do better?" — ask them to make a specific offer
+   - Keep replies under 2-3 sentences
+   - NEVER reveal cost price, margins, or minimum acceptable price
+   - Encourage them to make a specific price offer
+
+Respond with ONLY this JSON:
+{{
+  "has_price": <true or false>,
+  "extracted_price": <float or null — the dollar amount if has_price is true>,
+  "reply": "<string — your conversational reply if has_price is false, or null if has_price is true>"
+}}"""
