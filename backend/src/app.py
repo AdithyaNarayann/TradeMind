@@ -22,6 +22,7 @@ from .api import (
     http_exception_handler,
     value_error_handler,
 )
+from .analytics import analytics_router
 
 
 settings = get_settings()
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     # ==========================================================================
     
     app.include_router(router)
+    app.include_router(analytics_router)
     
     # Root endpoint
     @app.get("/", tags=["Root"])
@@ -122,6 +124,7 @@ def create_app() -> FastAPI:
             "version": "1.0.0",
             "docs": "/docs" if settings.debug else None,
             "health": "/api/v1/negotiate/health",
+            "analytics": "/api/v1/analytics/calculate",
         }
     
     return app

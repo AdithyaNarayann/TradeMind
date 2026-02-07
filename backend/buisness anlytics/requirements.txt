@@ -1,0 +1,12 @@
+# Business Analytics Engine - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Data Validation
+pydantic>=2.5.0
+
+# Utilities (optional but recommended)
+python-multipart>=0.0.6  # For form data support
