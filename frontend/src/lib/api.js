@@ -276,3 +276,25 @@ export async function getAnalyticsSchema() {
   return response.json();
 }
 
+// ============================================================
+// Dashboard API (real-time negotiation dashboard)
+// ============================================================
+
+export async function getDashboardSummary() {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/chat-sessions/dashboard/summary`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error('Failed to fetch dashboard');
+  return response.json();
+}
+
+export async function exportSession(sessionId) {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/chat-sessions/${sessionId}/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error('Failed to export session');
+  return response.json();
+}
+

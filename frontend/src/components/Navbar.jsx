@@ -14,7 +14,7 @@ export default function Navbar() {
     { path: '/', label: t('navbar.home'), icon: null },
     { path: '/products', label: 'Products', icon: LayoutDashboard },
     { path: '/authority', label: t('navbar.authority'), icon: BarChart3 },
-    { path: '/jury', label: t('navbar.jury'), icon: Settings },
+    { path: '/jury', label: 'Dashboard', icon: BarChart3 },
     { path: '/wallet', label: t('navbar.wallet'), icon: Code },
     { path: '/api-access', label: 'API', icon: Key },
   ];

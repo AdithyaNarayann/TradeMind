@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield } from 'lucide-react';
-import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession } from './api';
+import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle } from 'lucide-react';
+import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession, dbSaveCallbackRequest } from './api';
 import './Chat.css';
 
 export default function Chat() {
@@ -25,6 +25,16 @@ export default function Chat() {
     const [dbSessionId, setDbSessionId] = useState(null);
     const [lastBuyerOffer, setLastBuyerOffer] = useState(null);
     const [lastSellerOffer, setLastSellerOffer] = useState(null);
+
+    // Callback scheduling flow
+    const [callbackPhase, setCallbackPhase] = useState('none'); // none | asking | phone_popup | submitted
+    const [showPhonePopup, setShowPhonePopup] = useState(false);
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [phoneError, setPhoneError] = useState('');
+    const [callbackSaving, setCallbackSaving] = useState(false);
+    const [finalNegotiationStatus, setFinalNegotiationStatus] = useState(null);
+    const [finalDealPrice, setFinalDealPrice] = useState(null);
+
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -136,6 +146,83 @@ export default function Chat() {
         setLastSellerOffer(null);
         setError(null);
         setInputValue('');
+        setCallbackPhase('none');
+        setShowPhonePopup(false);
+        setPhoneNumber('');
+        setPhoneError('');
+        setFinalNegotiationStatus(null);
+        setFinalDealPrice(null);
+    }
+
+    // ── Callback scheduling handlers ──
+    function handleCallbackYes() {
+        setCallbackPhase('phone_popup');
+        setShowPhonePopup(true);
+        // Add a bot message acknowledging
+        setMessages(prev => [...prev, {
+            id: Date.now(),
+            text: "That's wonderful! I'd be happy to arrange that for you. Please share your phone number and our team will reach out at a convenient time.",
+            sender: 'bot',
+            timestamp: new Date(),
+            meta: { isCallbackFlow: true }
+        }]);
+    }
+
+    function handleCallbackNo() {
+        setCallbackPhase('submitted');
+        setMessages(prev => [...prev, {
+            id: Date.now(),
+            text: "No worries at all! Thank you for your time and for negotiating with us. We truly appreciate your interest. Feel free to come back anytime — we're always here to help. Have a great day! 🙏",
+            sender: 'bot',
+            timestamp: new Date(),
+            meta: { isCallbackFlow: true }
+        }]);
+    }
+
+    async function handlePhoneSubmit() {
+        // Validate phone
+        const cleaned = phoneNumber.replace(/[\s\-\(\)]/g, '');
+        if (!/^\+?\d{7,15}$/.test(cleaned)) {
+            setPhoneError('Please enter a valid phone number (7-15 digits)');
+            return;
+        }
+        setPhoneError('');
+        setCallbackSaving(true);
+
+        try {
+            const result = await dbSaveCallbackRequest({
+                session_id: dbSessionId,
+                phone_number: cleaned,
+                product_name: 'Custom Product',
+                negotiation_status: finalNegotiationStatus,
+                final_price: finalDealPrice,
+            });
+
+            setShowPhonePopup(false);
+            setCallbackPhase('submitted');
+
+            if (result?.saved) {
+                setMessages(prev => [...prev, {
+                    id: Date.now(),
+                    text: "Thank you so much! Your callback request has been saved successfully. Our team will reach out to you shortly at the number provided. We look forward to speaking with you! 🤝",
+                    sender: 'bot',
+                    timestamp: new Date(),
+                    meta: { isCallbackFlow: true, callbackSaved: true }
+                }]);
+            } else {
+                setMessages(prev => [...prev, {
+                    id: Date.now(),
+                    text: "Thank you for sharing your number. We've noted your interest — our team will follow up soon. Apologies for any delay in processing.",
+                    sender: 'bot',
+                    timestamp: new Date(),
+                    meta: { isCallbackFlow: true }
+                }]);
+            }
+        } catch (err) {
+            setPhoneError('Failed to save. Please try again.');
+        } finally {
+            setCallbackSaving(false);
+        }
     }
 
     const handleSendMessage = async (e) => {
@@ -235,6 +322,22 @@ export default function Chat() {
                         seller_last_offer: counterPrice || acceptedPrice || lastSellerOffer,
                         rounds_used: response.round_number || 0,
                     });
+
+                    // ── Trigger callback scheduling flow ──
+                    setFinalNegotiationStatus(finalStatus);
+                    setFinalDealPrice(dealWasMade ? (acceptedPrice || offeredPrice) : null);
+                    setCallbackPhase('asking');
+
+                    // Add a professional message asking about scheduling a call
+                    setTimeout(() => {
+                        setMessages(prev => [...prev, {
+                            id: Date.now() + 100,
+                            text: "Thank you for taking the time to negotiate with us — we truly value your interest.\n\nWould you like us to schedule a professional call to discuss this further? Our team would be happy to connect with you at your convenience.",
+                            sender: 'bot',
+                            timestamp: new Date(),
+                            meta: { isCallbackPrompt: true }
+                        }]);
+                    }, 1200);
                 }
             } else {
                 setError('Empty response from server');
@@ -431,6 +534,34 @@ export default function Chat() {
                             >
                                 <div className={"chat-message-" + msg.sender + " flex flex-col"}>
                                     <p className="text-sm whitespace-pre-line">{msg.text}</p>
+
+                                    {/* Callback prompt — Yes/No buttons */}
+                                    {msg.meta?.isCallbackPrompt && callbackPhase === 'asking' && (
+                                        <div className="flex gap-3 mt-3">
+                                            <button
+                                                onClick={handleCallbackYes}
+                                                className="flex items-center gap-2 px-5 py-2.5 bg-neo-orange text-neo-navy border-2 border-neo-navy font-bold text-sm shadow-neo hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                                            >
+                                                <Phone className="w-4 h-4" />
+                                                Yes, Schedule a Call
+                                            </button>
+                                            <button
+                                                onClick={handleCallbackNo}
+                                                className="flex items-center gap-2 px-5 py-2.5 bg-white text-neo-navy border-2 border-neo-navy font-bold text-sm hover:bg-neo-navy/5 transition-all"
+                                            >
+                                                No, Thank You
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Callback saved confirmation badge */}
+                                    {msg.meta?.callbackSaved && (
+                                        <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-green-600/20 border border-green-500 rounded text-xs font-bold text-green-200">
+                                            <CheckCircle className="w-3.5 h-3.5" />
+                                            Callback request saved
+                                        </div>
+                                    )}
+
                                     <div className="flex items-center justify-between mt-1 gap-3">
                                         <span className="text-xs opacity-70">
                                             {msg.timestamp.toLocaleTimeString()}
@@ -464,7 +595,7 @@ export default function Chat() {
                 </div>
             </div>
 
-            {negotiationEnded && (
+            {negotiationEnded && callbackPhase === 'submitted' && (
                 <div className="bg-neo-navy text-neo-cream p-4 border-t-4 border-neo-orange">
                     <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
                         <p className="font-bold font-heading">Negotiation Complete</p>
@@ -474,6 +605,87 @@ export default function Chat() {
                         >
                             <RotateCcw className="w-4 h-4" /> New Negotiation
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Phone Number Popup Modal */}
+            {showPhonePopup && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowPhonePopup(false)}>
+                    <div
+                        className="w-full max-w-md bg-neo-cream border-4 border-neo-navy shadow-neo p-0 animate-popup"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Popup Header */}
+                        <div className="bg-neo-navy text-neo-cream p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 bg-neo-orange flex items-center justify-center border-2 border-neo-cream">
+                                    <Phone className="w-5 h-5 text-neo-navy" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold font-heading text-lg">Schedule a Call</h3>
+                                    <p className="text-xs text-neo-cream/70">We'll reach out at your convenience</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setShowPhonePopup(false); setCallbackPhase('asking'); }}
+                                className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Popup Body */}
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-neo-navy/80">
+                                Please enter your phone number below. Our team will contact you to discuss the details further.
+                            </p>
+
+                            <div>
+                                <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">
+                                    Phone Number
+                                </label>
+                                <div className="flex items-center border-3 border-neo-navy overflow-hidden">
+                                    <span className="px-3 py-3 bg-neo-navy text-neo-cream font-bold text-lg">
+                                        <Phone className="w-5 h-5" />
+                                    </span>
+                                    <input
+                                        type="tel"
+                                        value={phoneNumber}
+                                        onChange={e => { setPhoneNumber(e.target.value); setPhoneError(''); }}
+                                        placeholder="+1 (555) 123-4567"
+                                        className="flex-1 px-4 py-3 bg-white text-neo-navy font-bold text-lg focus:outline-none"
+                                        autoFocus
+                                        onKeyDown={e => { if (e.key === 'Enter') handlePhoneSubmit(); }}
+                                    />
+                                </div>
+                                {phoneError && (
+                                    <p className="text-neo-maroon text-xs font-bold mt-2 flex items-center gap-1">
+                                        <AlertCircle className="w-3.5 h-3.5" /> {phoneError}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={handlePhoneSubmit}
+                                    disabled={callbackSaving || !phoneNumber.trim()}
+                                    className={"flex-1 py-3 border-3 border-neo-navy font-bold text-sm flex items-center justify-center gap-2 transition-all " + (callbackSaving || !phoneNumber.trim() ? 'bg-neo-navy/20 text-neo-navy/40 cursor-not-allowed' : 'bg-neo-orange text-neo-navy shadow-neo hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]')}
+                                >
+                                    {callbackSaving ? (
+                                        <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                                    ) : (
+                                        <><CheckCircle className="w-4 h-4" /> Submit</>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => { setShowPhonePopup(false); setCallbackPhase('asking'); }}
+                                    className="px-5 py-3 border-3 border-neo-navy bg-white text-neo-navy font-bold text-sm hover:bg-neo-navy/5 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

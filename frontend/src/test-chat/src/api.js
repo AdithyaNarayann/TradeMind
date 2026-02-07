@@ -56,6 +56,20 @@ export async function dbCloseSession(dbSessionId, { status, final_price, final_d
     } catch { return null; }
 }
 
+/** Save a callback request (phone number for scheduling a call) */
+export async function dbSaveCallbackRequest({ session_id, phone_number, product_name, negotiation_status, final_price }) {
+    if (!_token()) return null;
+    try {
+        const res = await fetch(`${CHAT_DB_BASE}/callback-request`, {
+            method: 'POST',
+            headers: _authHeaders(),
+            body: JSON.stringify({ session_id, phone_number, product_name, negotiation_status, final_price }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
 /** Get all chat sessions for current user */
 export async function dbGetSessions() {
     if (!_token()) return [];

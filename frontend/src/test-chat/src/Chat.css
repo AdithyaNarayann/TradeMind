@@ -122,3 +122,31 @@ input[type="number"].config-input:focus {
         box-shadow: 2px 2px 0px #001524;
     }
 }
+
+/* Phone popup animation */
+@keyframes popupSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.animate-popup {
+    animation: popupSlideIn 0.3s ease-out;
+}
+
+/* Phone input styling */
+input[type="tel"] {
+    font-family: 'Inter', sans-serif;
+    transition: all 0.2s;
+}
+
+input[type="tel"]:focus {
+    outline: none;
+    border-color: #FF7D00 !important;
+    box-shadow: 3px 3px 0px #001524;
+}
