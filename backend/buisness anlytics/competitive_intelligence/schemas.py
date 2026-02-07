@@ -18,8 +18,7 @@ class CompetitiveAnalysisRequest(BaseModel):
     """
     Input for competitive analysis.
     
-    Minimal inputs required - just the product info and the seller's price.
-    The system handles discovery and comparison autonomously.
+    Product details drive web scraping + LLM analysis.
     """
     
     product_name: str = Field(
@@ -27,6 +26,11 @@ class CompetitiveAnalysisRequest(BaseModel):
         min_length=2,
         max_length=200,
         description="Product name or search query to find competitors"
+    )
+    product_description: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Detailed product description to help the AI understand features & positioning"
     )
     category: Optional[str] = Field(
         default=None,
@@ -44,6 +48,7 @@ class CompetitiveAnalysisRequest(BaseModel):
             "examples": [
                 {
                     "product_name": "Boat Airdopes 141 Wireless Earbuds",
+                    "product_description": "True wireless earbuds with Bluetooth 5.1, 42H playback, IPX4 water resistance, ENx noise cancellation, dual mics",
                     "category": "Electronics",
                     "my_price": 1299
                 }
@@ -154,6 +159,21 @@ class CompetitiveInsight(BaseModel):
     data_point: Optional[float] = Field(default=None, description="The metric value behind the insight")
 
 
+class LLMAnalysis(BaseModel):
+    """
+    AI-generated deep competitive analysis from OpenRouter / Gemini.
+    """
+    executive_summary: str = Field(default="", description="2-3 sentence competitive overview")
+    pricing_strategy: str = Field(default="", description="Specific pricing recommendation")
+    strengths: List[str] = Field(default_factory=list, description="Competitive strengths")
+    weaknesses: List[str] = Field(default_factory=list, description="Competitive weaknesses")
+    opportunities: List[str] = Field(default_factory=list, description="Market opportunities")
+    threats: List[str] = Field(default_factory=list, description="Competitive threats")
+    recommended_price: Optional[float] = Field(default=None, description="AI-suggested optimal price")
+    action_items: List[str] = Field(default_factory=list, description="Prioritised next steps")
+    market_analysis: str = Field(default="", description="Paragraph-length deep dive")
+
+
 class CompetitiveMeta(BaseModel):
     """
     Metadata about the analysis.
@@ -181,6 +201,14 @@ class CompetitiveMeta(BaseModel):
         default=None,
         description="If fallback was used, explains why"
     )
+    sources_used: List[str] = Field(
+        default_factory=list,
+        description="Which scrapers returned data (e.g., ['amazon_in', 'flipkart'])"
+    )
+    llm_analysis_available: bool = Field(
+        default=False,
+        description="True if AI analysis was successfully generated"
+    )
 
 
 class CompetitiveAnalysisResponse(BaseModel):
@@ -201,6 +229,10 @@ class CompetitiveAnalysisResponse(BaseModel):
     )
     insights: List[CompetitiveInsight] = Field(
         description="Rule-based competitive insights"
+    )
+    llm_analysis: Optional[LLMAnalysis] = Field(
+        default=None,
+        description="AI-generated deep competitive analysis (null if LLM unavailable)"
     )
     meta: CompetitiveMeta = Field(
         description="Analysis metadata and flags"

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BarChart3, ArrowLeft, RefreshCw, Eye, CheckCircle, XCircle,
   Clock, AlertTriangle, ExternalLink, Bot, FileText, Filter,
   Network, FileSearch, Brain, Users, ThumbsUp, ThumbsDown, User,
-  DollarSign, TrendingUp, TrendingDown, ShoppingCart, Package,
-  Percent, Activity, Zap, Info, ChevronRight, Calculator
+  IndianRupee, TrendingUp, TrendingDown, ShoppingCart, Package,
+  Percent, Activity, Zap, Info, ChevronRight, Calculator,
+  Sparkles, Target, Shield, Search, Lightbulb
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
@@ -15,6 +16,8 @@ import { useI18n } from '../context/I18nContext';
 
 // ─── Default form values ─────────────────────────────────────────
 const DEFAULT_PRODUCT = {
+  product_name: '',
+  product_description: '',
   cost_price: '',
   selling_price: '',
   initial_stock: '',
@@ -38,6 +41,23 @@ const severityStyles = {
   success:  { bg: 'bg-neo-teal/10',     border: 'border-neo-teal',   text: 'text-neo-teal',   icon: CheckCircle },
 };
 
+// ─── Extracted outside to prevent re-mount on every keystroke ──
+const InputField = ({ label, value, onChange, icon: Icon, placeholder, type = 'number' }) => (
+  <div className="space-y-1">
+    <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+      {Icon && <Icon className="w-3 h-3" />}
+      {label}
+    </label>
+    <input
+      type={type}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
+    />
+  </div>
+);
+
 export default function Authority() {
   const { t } = useI18n();
 
@@ -52,16 +72,17 @@ export default function Authority() {
   const [activeTab, setActiveTab] = useState('metrics');
   const [filter, setFilter] = useState('all');
   const [backendHealthy, setBackendHealthy] = useState(null);
+  const resultsRef = useRef(null);
 
   // ─── Stats derived from analytics response ───────────────────
   const stats = analyticsData
     ? {
-        revenue:    `$${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}`,
-        profit:     `$${Number(analyticsData.summary_metrics.profit_or_loss).toLocaleString()}`,
+        revenue:    `₹${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}`,
+        profit:     `₹${Number(analyticsData.summary_metrics.profit_or_loss).toLocaleString()}`,
         margin:     `${Number(analyticsData.summary_metrics.profit_margin_percent).toFixed(1)}%`,
         conversion: `${Number(analyticsData.summary_metrics.conversion_rate).toFixed(1)}%`,
       }
-    : { revenue: '$0', profit: '$0', margin: '0%', conversion: '0%' };
+    : { revenue: '₹0', profit: '₹0', margin: '0%', conversion: '0%' };
 
   // ─── Health check on mount ───────────────────────────────────
   useEffect(() => {
@@ -130,6 +151,7 @@ export default function Authority() {
       const result = await calculateAnalytics(payload);
       setAnalyticsData(result);
       setActiveTab('metrics');
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (err) {
       console.error('Analytics failed:', err);
       setError(err.message || 'Failed to calculate analytics');
@@ -138,17 +160,25 @@ export default function Authority() {
   };
 
   const handleCompetitiveAnalysis = async () => {
-    if (!product.selling_price) return;
+    if (!product.selling_price || !product.product_name) {
+      setError('Product name and selling price are required for competitive analysis');
+      return;
+    }
     setCompLoading(true);
+    setError(null);
     try {
       const result = await getCompetitiveAnalysis({
-        product_name: 'Product',
+        product_name: product.product_name.trim(),
+        product_description: product.product_description.trim() || null,
         category: 'General',
         my_price: parseFloat(product.selling_price) || 0,
       });
       setCompetitiveData(result);
+      setActiveTab('charts');
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (err) {
       console.error('Competitive analysis failed:', err);
+      setError(err.message || 'Competitive analysis failed');
     }
     setCompLoading(false);
   };
@@ -180,22 +210,7 @@ export default function Authority() {
     );
   };
 
-  // ─── Input field helper ───────────────────────────────────────
-  const InputField = ({ label, value, onChange, icon: Icon, placeholder, type = 'number' }) => (
-    <div className="space-y-1">
-      <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
-        {Icon && <Icon className="w-3 h-3" />}
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
-      />
-    </div>
-  );
+  // ─── Input field helper (defined outside component) ────────
 
   return (
     <Layout>
@@ -273,198 +288,227 @@ export default function Authority() {
             </NeoCard>
           </div>
 
-          {/* ───── Main Content Grid ─────────────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
+          {/* ───── Input Cards — 3 across ────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
 
-            {/* ───── LEFT COLUMN: Input Form ─────────────────────── */}
-            <div className="lg:col-span-4 xl:col-span-3 space-y-3 sm:space-y-4">
-
-              {/* Product Parameters */}
-              <NeoCard className="p-2 sm:p-4">
-                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Package className="w-4 h-4 text-neo-orange" />
-                  Product Parameters
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <InputField
-                    label="Cost Price"
-                    value={product.cost_price}
-                    onChange={v => handleProductChange('cost_price', v)}
-                    icon={DollarSign}
-                    placeholder="500"
-                  />
-                  <InputField
-                    label="Selling Price"
-                    value={product.selling_price}
-                    onChange={v => handleProductChange('selling_price', v)}
-                    icon={DollarSign}
-                    placeholder="999"
-                  />
-                  <InputField
-                    label="Initial Stock"
-                    value={product.initial_stock}
-                    onChange={v => handleProductChange('initial_stock', v)}
-                    icon={Package}
-                    placeholder="100"
-                  />
-                  <InputField
-                    label="Platform Fee %"
-                    value={product.platform_fee_percent}
-                    onChange={v => handleProductChange('platform_fee_percent', v)}
-                    icon={Percent}
-                    placeholder="10"
-                  />
-                  <InputField
-                    label="Shipping / Unit"
-                    value={product.shipping_cost}
-                    onChange={v => handleProductChange('shipping_cost', v)}
-                    icon={ShoppingCart}
-                    placeholder="50"
-                  />
-                  <InputField
-                    label="Marketing Spend"
-                    value={product.marketing_cost}
-                    onChange={v => handleProductChange('marketing_cost', v)}
-                    icon={TrendingUp}
-                    placeholder="5000"
+            {/* Product Info */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Search className="w-4 h-4 text-neo-orange" />
+                Product Info
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Product Name"
+                  value={product.product_name}
+                  onChange={v => handleProductChange('product_name', v)}
+                  icon={Package}
+                  placeholder="e.g. Boat Airdopes 141"
+                  type="text"
+                />
+                <div className="space-y-1">
+                  <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+                    <FileText className="w-3 h-3" />
+                    Product Description
+                  </label>
+                  <textarea
+                    value={product.product_description}
+                    onChange={e => handleProductChange('product_description', e.target.value)}
+                    placeholder="Describe key features, specs, USPs..."
+                    rows={3}
+                    className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors resize-none"
                   />
                 </div>
-              </NeoCard>
+              </div>
+            </NeoCard>
 
-              {/* Performance Signals */}
-              <NeoCard className="p-2 sm:p-4">
-                <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-neo-teal" />
-                  Performance Signals
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <InputField
-                    label="Chat Sessions"
-                    value={performance.chats}
-                    onChange={v => handlePerformanceChange('chats', v)}
-                    icon={Users}
-                    placeholder="150"
-                  />
-                  <InputField
-                    label="Orders"
-                    value={performance.orders}
-                    onChange={v => handlePerformanceChange('orders', v)}
-                    icon={ShoppingCart}
-                    placeholder="45"
-                  />
-                  <InputField
-                    label="Units Sold"
-                    value={performance.units_sold}
-                    onChange={v => handlePerformanceChange('units_sold', v)}
-                    icon={Package}
-                    placeholder="52"
-                  />
-                  <InputField
-                    label="Returns"
-                    value={performance.returns}
-                    onChange={v => handlePerformanceChange('returns', v)}
-                    icon={XCircle}
-                    placeholder="3"
-                  />
-                </div>
-              </NeoCard>
+            {/* Product Parameters */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-neo-orange" />
+                Product Parameters
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Cost Price"
+                  value={product.cost_price}
+                  onChange={v => handleProductChange('cost_price', v)}
+                  icon={IndianRupee}
+                  placeholder="500"
+                />
+                <InputField
+                  label="Selling Price"
+                  value={product.selling_price}
+                  onChange={v => handleProductChange('selling_price', v)}
+                  icon={IndianRupee}
+                  placeholder="999"
+                />
+                <InputField
+                  label="Initial Stock"
+                  value={product.initial_stock}
+                  onChange={v => handleProductChange('initial_stock', v)}
+                  icon={Package}
+                  placeholder="100"
+                />
+                <InputField
+                  label="Platform Fee %"
+                  value={product.platform_fee_percent}
+                  onChange={v => handleProductChange('platform_fee_percent', v)}
+                  icon={Percent}
+                  placeholder="10"
+                />
+                <InputField
+                  label="Shipping / Unit"
+                  value={product.shipping_cost}
+                  onChange={v => handleProductChange('shipping_cost', v)}
+                  icon={ShoppingCart}
+                  placeholder="50"
+                />
+                <InputField
+                  label="Marketing Spend"
+                  value={product.marketing_cost}
+                  onChange={v => handleProductChange('marketing_cost', v)}
+                  icon={TrendingUp}
+                  placeholder="5000"
+                />
+              </div>
+            </NeoCard>
 
-              {/* Calculate Button */}
-              <NeoButton
-                onClick={handleCalculate}
-                variant="teal"
-                className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
-                disabled={loading || !product.cost_price || !product.selling_price || !product.initial_stock || parseFloat(product.cost_price) <= 0 || parseFloat(product.selling_price) <= 0}
-              >
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
-                    Calculating...
-                  </>
-                ) : (
-                  <>
-                    <Calculator className="w-4 h-4 mr-2" />
-                    Calculate Analytics
-                  </>
-                )}
-              </NeoButton>
+            {/* Performance Signals */}
+            <NeoCard className="p-2 sm:p-4">
+              <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-neo-teal" />
+                Performance Signals
+              </h3>
+              <div className="space-y-2 sm:space-y-3">
+                <InputField
+                  label="Chat Sessions"
+                  value={performance.chats}
+                  onChange={v => handlePerformanceChange('chats', v)}
+                  icon={Users}
+                  placeholder="150"
+                />
+                <InputField
+                  label="Orders"
+                  value={performance.orders}
+                  onChange={v => handlePerformanceChange('orders', v)}
+                  icon={ShoppingCart}
+                  placeholder="45"
+                />
+                <InputField
+                  label="Units Sold"
+                  value={performance.units_sold}
+                  onChange={v => handlePerformanceChange('units_sold', v)}
+                  icon={Package}
+                  placeholder="52"
+                />
+                <InputField
+                  label="Returns"
+                  value={performance.returns}
+                  onChange={v => handlePerformanceChange('returns', v)}
+                  icon={XCircle}
+                  placeholder="3"
+                />
+              </div>
+            </NeoCard>
+          </div>
 
-              {/* Competitive Analysis Button */}
-              {analyticsData && (
-                <NeoButton
-                  onClick={handleCompetitiveAnalysis}
-                  variant="orange"
-                  className="w-full !py-2 sm:!py-3 !text-xs sm:!text-sm"
-                  disabled={compLoading}
-                >
-                  {compLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin mr-2" />
-                      Analyzing Market...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-4 h-4 mr-2" />
-                      Run Competitive Analysis
-                    </>
-                  )}
-                </NeoButton>
+          {/* ───── Action Buttons + Error ─────────────────────────── */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-4 sm:mb-6">
+            <NeoButton
+              onClick={handleCalculate}
+              variant="teal"
+              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
+              disabled={loading || !product.cost_price || !product.selling_price || !product.initial_stock || parseFloat(product.cost_price) <= 0 || parseFloat(product.selling_price) <= 0}
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
+                  Calculating...
+                </>
+              ) : (
+                <>
+                  <Calculator className="w-4 h-4 mr-2" />
+                  Calculate Analytics
+                </>
               )}
+            </NeoButton>
 
-              {/* Error Display */}
-              {error && (
-                <NeoCard variant="maroon" className="p-2 sm:p-3">
-                  <p className="text-neo-cream font-bold text-[10px] sm:text-xs flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    {error}
-                  </p>
-                </NeoCard>
+            <NeoButton
+              onClick={handleCompetitiveAnalysis}
+              variant="orange"
+              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
+              disabled={compLoading || !product.product_name || !product.selling_price}
+            >
+              {compLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin mr-2" />
+                  Scraping & AI Analysis...
+                </>
+              ) : (
+                <>
+                  <Brain className="w-4 h-4 mr-2" />
+                  Run AI Competitive Analysis
+                </>
               )}
+            </NeoButton>
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="mb-4 sm:mb-6">
+              <NeoCard variant="maroon" className="p-2 sm:p-3">
+                <p className="text-neo-cream font-bold text-[10px] sm:text-xs flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  {error}
+                </p>
+              </NeoCard>
             </div>
+          )}
 
-            {/* ───── RIGHT COLUMN: Results Panel ─────────────────── */}
-            <div className="lg:col-span-8 xl:col-span-9">
-              <NeoCard className="overflow-hidden">
-                {/* Tab Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-neo-navy/5 p-2 sm:p-4 border-b-[2px] sm:border-b-[3px] border-neo-navy">
-                  <div className="flex gap-1 mb-2 sm:mb-0">
-                    {['metrics', 'charts', 'insights'].map(tab => (
+          {/* ───── Results Panel (full width below) ──────────────── */}
+          <div ref={resultsRef}>
+            <NeoCard className="overflow-hidden">
+              {/* Tab Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-neo-navy/5 p-2 sm:p-4 border-b-[2px] sm:border-b-[3px] border-neo-navy">
+                <div className="flex gap-1 mb-2 sm:mb-0">
+                  {['metrics', 'charts', 'insights'].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-2 sm:px-4 py-1 sm:py-2 text-[10px] sm:text-xs font-bold uppercase border-[2px] transition-all ${
+                        activeTab === tab
+                          ? 'bg-neo-navy text-neo-cream border-neo-navy'
+                          : 'bg-neo-cream text-neo-navy border-neo-navy/30 hover:border-neo-navy'
+                      }`}
+                    >
+                      {tab === 'metrics' && <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab === 'charts' && <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab === 'insights' && <Zap className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Insight severity filter pills (only on insights tab) */}
+                {activeTab === 'insights' && analyticsData && (
+                  <div className="flex gap-1">
+                    {['all', 'success', 'warning', 'critical'].map(f => (
                       <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-2 sm:px-4 py-1 sm:py-2 text-[10px] sm:text-xs font-bold uppercase border-[2px] transition-all ${
-                          activeTab === tab
-                            ? 'bg-neo-navy text-neo-cream border-neo-navy'
-                            : 'bg-neo-cream text-neo-navy border-neo-navy/30 hover:border-neo-navy'
+                        key={f}
+                        onClick={() => setFilter(f)}
+                        className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold border-[2px] transition-all ${
+                          filter === f
+                            ? 'bg-neo-orange text-neo-navy border-neo-orange'
+                            : 'bg-neo-cream text-neo-navy/60 border-neo-navy/20 hover:border-neo-navy/40'
                         }`}
                       >
-                        {tab === 'metrics' && <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab === 'charts' && <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab === 'insights' && <Zap className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
                   </div>
-
-                  {/* Insight severity filter pills (only on insights tab) */}
-                  {activeTab === 'insights' && analyticsData && (
-                    <div className="flex gap-1">
-                      {['all', 'success', 'warning', 'critical'].map(f => (
-                        <button
-                          key={f}
-                          onClick={() => setFilter(f)}
-                          className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold border-[2px] transition-all ${
-                            filter === f
-                              ? 'bg-neo-orange text-neo-navy border-neo-orange'
-                              : 'bg-neo-cream text-neo-navy/60 border-neo-navy/20 hover:border-neo-navy/40'
-                          }`}
-                        >
-                          {f.charAt(0).toUpperCase() + f.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
+              </div>
 
                 {/* Tab Content */}
                 <div className="p-2 sm:p-4">
@@ -473,7 +517,7 @@ export default function Authority() {
                       <div className="text-center">
                         <BarChart3 className="w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-2 opacity-50" />
                         <p className="text-xs sm:text-sm">Enter your product data and hit Calculate</p>
-                        <p className="text-[10px] sm:text-xs text-neo-navy/30 mt-1">Fill in the form on the left to get started</p>
+                        <p className="text-[10px] sm:text-xs text-neo-navy/30 mt-1">Fill in the form above to get started</p>
                       </div>
                     </div>
                   ) : loading ? (
@@ -520,26 +564,26 @@ export default function Authority() {
                             {/* Revenue Card */}
                             <NeoCard className="p-2 sm:p-4">
                               <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 sm:mb-2 flex items-center gap-1 sm:gap-2">
-                                <DollarSign className="w-3 h-3 sm:w-4 sm:h-4" />
+                                <IndianRupee className="w-3 h-3 sm:w-4 sm:h-4" />
                                 Revenue
                               </p>
                               <div className="space-y-1 sm:space-y-2">
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Gross Revenue</span>
                                   <span className="font-bold text-neo-navy">
-                                    ${Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.gross_revenue).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Net Revenue</span>
                                   <span className="font-bold text-neo-teal">
-                                    ${Number(analyticsData.summary_metrics.net_revenue).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.net_revenue).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Effective Price</span>
                                   <span className="font-bold text-neo-navy">
-                                    ${Number(analyticsData.summary_metrics.effective_selling_price).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.effective_selling_price).toLocaleString()}
                                   </span>
                                 </div>
                               </div>
@@ -555,31 +599,31 @@ export default function Authority() {
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Product Cost</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.product_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.product_cost).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Platform Fee</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.platform_fee).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.platform_fee).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Shipping</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.shipping_total).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.shipping_total).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm">
                                   <span className="text-neo-navy/70">Marketing</span>
                                   <span className="font-bold text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.marketing_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.marketing_cost).toLocaleString()}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between text-xs sm:text-sm border-t border-neo-navy/10 pt-1">
                                   <span className="text-neo-navy font-bold">Total Cost</span>
                                   <span className="font-black text-neo-maroon">
-                                    ${Number(analyticsData.summary_metrics.total_cost).toLocaleString()}
+                                    ₹{Number(analyticsData.summary_metrics.total_cost).toLocaleString()}
                                   </span>
                                 </div>
                               </div>
@@ -593,7 +637,7 @@ export default function Authority() {
                               <p className={`text-lg sm:text-2xl font-bold ${
                                 Number(analyticsData.summary_metrics.profit_per_unit) >= 0 ? 'text-neo-teal' : 'text-neo-maroon'
                               }`}>
-                                ${Number(analyticsData.summary_metrics.profit_per_unit).toFixed(0)}
+                                ₹{Number(analyticsData.summary_metrics.profit_per_unit).toFixed(0)}
                               </p>
                             </div>
                             <div className="p-2 sm:p-3 bg-neo-navy text-center">
@@ -664,15 +708,16 @@ export default function Authority() {
                               <div className="space-y-2">
                                 {analyticsData.charts.revenue_breakdown.labels.map((label, i) => {
                                   const dataset = analyticsData.charts.revenue_breakdown.datasets[0];
-                                  const value = dataset?.values?.[i] || 0;
-                                  const maxVal = Math.max(...(dataset?.values || [1]));
-                                  const pct = maxVal > 0 ? (Number(value) / Number(maxVal)) * 100 : 0;
-                                  const color = dataset?.colors?.[i] || '#1a1a2e';
+                                  const value = dataset?.data?.[i] ?? 0;
+                                  const absValues = (dataset?.data || [1]).map(v => Math.abs(Number(v)));
+                                  const maxVal = Math.max(...absValues);
+                                  const pct = maxVal > 0 ? (Math.abs(Number(value)) / maxVal) * 100 : 0;
+                                  const color = dataset?.backgroundColor?.[i] || '#1a1a2e';
                                   return (
                                     <div key={label}>
                                       <div className="flex justify-between text-xs text-neo-navy/60 mb-1">
                                         <span className="font-bold">{label}</span>
-                                        <span className="font-mono">${Number(value).toLocaleString()}</span>
+                                        <span className="font-mono">₹{Number(value).toLocaleString()}</span>
                                       </div>
                                       <div className="w-full h-4 bg-neo-navy/10 border border-neo-navy/20">
                                         <div
@@ -697,11 +742,11 @@ export default function Authority() {
                                 {analyticsData.charts.sales_funnel.stages.map((stage, i) => (
                                   <div key={stage.stage} className="flex items-center gap-3">
                                     <div className="w-24 sm:w-32 text-xs font-bold text-neo-navy truncate">{stage.stage}</div>
-                                    <div className="flex-1 h-6 bg-neo-navy/10 border border-neo-navy/20 relative">
+                                    <div className="flex-1 h-6 bg-neo-navy/10 border border-neo-navy/20 relative overflow-hidden">
                                       <div
                                         className="h-full transition-all flex items-center justify-end pr-2"
                                         style={{
-                                          width: `${Math.max(Number(stage.percentage), 5)}%`,
+                                          width: `${Math.min(Math.max(Number(stage.percentage), 5), 100)}%`,
                                           backgroundColor: stage.color,
                                         }}
                                       >
@@ -757,7 +802,7 @@ export default function Authority() {
                                 >
                                   <p className="text-neo-cream/60 text-[8px] sm:text-[10px] uppercase">{cost.label}</p>
                                   <p className="text-neo-cream font-bold text-sm sm:text-lg">
-                                    ${Number(cost.value).toLocaleString()}
+                                    ₹{Number(cost.value).toLocaleString()}
                                   </p>
                                 </div>
                               ))}
@@ -774,7 +819,7 @@ export default function Authority() {
 
                               {/* Market Position */}
                               <NeoCard className="p-3 sm:p-4 mb-3">
-                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Your Market Position</p>
+                                <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Your Market Position</p>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                   <div className="p-2 bg-neo-navy text-center">
                                     <p className="text-neo-cream/60 text-[8px] uppercase">Position</p>
@@ -808,7 +853,7 @@ export default function Authority() {
 
                               {/* Market Summary */}
                               <NeoCard className="p-3 sm:p-4 mb-3">
-                                <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Market Prices</p>
+                                <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Market Prices</p>
                                 <div className="grid grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <p className="text-[8px] text-neo-navy/50 uppercase">Min</p>
@@ -832,7 +877,7 @@ export default function Authority() {
                               {/* Competitor Samples */}
                               {competitiveData.competitor_sample?.length > 0 && (
                                 <NeoCard className="p-3 sm:p-4">
-                                  <p className="text-xs font-bold text-neo-navy/60 uppercase mb-2">Top Competitors</p>
+                                  <p className="text-sm sm:text-base font-bold text-neo-navy/60 uppercase mb-2">Top Competitors</p>
                                   <div className="space-y-2">
                                     {competitiveData.competitor_sample.map((comp, i) => (
                                       <div key={i} className="flex items-center justify-between p-2 border-[2px] border-neo-navy/10 hover:border-neo-navy/30 transition-all">
@@ -855,6 +900,185 @@ export default function Authority() {
                                     ))}
                                   </div>
                                 </NeoCard>
+                              )}
+
+                              {/* ─── AI-Powered Deep Analysis ─────────────── */}
+                              {competitiveData.llm_analysis && (
+                                <div className="mt-4 space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-neo-orange flex items-center justify-center">
+                                      <Sparkles className="w-5 h-5 text-neo-navy" />
+                                    </div>
+                                    <div>
+                                      <p className="text-base sm:text-lg font-bold text-neo-navy">AI Deep Analysis</p>
+                                      <p className="text-[10px] text-neo-navy/50">Powered by Gemini</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Executive Summary */}
+                                  {competitiveData.llm_analysis.executive_summary && (
+                                    <NeoCard className="p-3 sm:p-4 border-l-4 border-neo-orange">
+                                      <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 flex items-center gap-1">
+                                        <FileText className="w-3 h-3" />
+                                        Executive Summary
+                                      </p>
+                                      <p className="text-xs sm:text-sm text-neo-navy leading-relaxed">
+                                        {competitiveData.llm_analysis.executive_summary}
+                                      </p>
+                                    </NeoCard>
+                                  )}
+
+                                  {/* Pricing Strategy + Recommended Price */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {competitiveData.llm_analysis.pricing_strategy && (
+                                      <NeoCard className="p-3 sm:p-4">
+                                        <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 flex items-center gap-1">
+                                          <Target className="w-3 h-3" />
+                                          Pricing Strategy
+                                        </p>
+                                        <p className="text-xs sm:text-sm text-neo-navy">
+                                          {competitiveData.llm_analysis.pricing_strategy}
+                                        </p>
+                                      </NeoCard>
+                                    )}
+                                    {competitiveData.llm_analysis.recommended_price != null && (
+                                      <NeoCard className="p-3 sm:p-4 bg-neo-teal/10 border-[2px] border-neo-teal">
+                                        <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-teal mb-1 flex items-center gap-1">
+                                          <IndianRupee className="w-3 h-3" />
+                                          AI Recommended Price
+                                        </p>
+                                        <p className="text-2xl sm:text-3xl font-black text-neo-teal">
+                                          ₹{Number(competitiveData.llm_analysis.recommended_price).toLocaleString()}
+                                        </p>
+                                        <p className="text-[10px] text-neo-navy/50 mt-1">
+                                          {(() => {
+                                            const diff = ((competitiveData.llm_analysis.recommended_price - competitiveData.my_position.price_difference - competitiveData.market_summary.avg_market_price) / (competitiveData.my_position.price_difference + competitiveData.market_summary.avg_market_price) * 100);
+                                            return !isNaN(diff) ? `Based on market data & AI analysis` : '';
+                                          })()}
+                                        </p>
+                                      </NeoCard>
+                                    )}
+                                  </div>
+
+                                  {/* SWOT Grid */}
+                                  {(competitiveData.llm_analysis.strengths?.length > 0 || competitiveData.llm_analysis.weaknesses?.length > 0 || competitiveData.llm_analysis.opportunities?.length > 0 || competitiveData.llm_analysis.threats?.length > 0) && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      {/* Strengths */}
+                                      {competitiveData.llm_analysis.strengths?.length > 0 && (
+                                        <NeoCard className="p-3 border-l-4 border-neo-teal">
+                                          <p className="text-[10px] uppercase font-bold text-neo-teal mb-2 flex items-center gap-1">
+                                            <CheckCircle className="w-3 h-3" /> Strengths
+                                          </p>
+                                          <ul className="space-y-1">
+                                            {competitiveData.llm_analysis.strengths.map((s, i) => (
+                                              <li key={i} className="text-[11px] sm:text-xs text-neo-navy flex items-start gap-1.5">
+                                                <span className="text-neo-teal mt-0.5">▸</span> {s}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </NeoCard>
+                                      )}
+                                      {/* Weaknesses */}
+                                      {competitiveData.llm_analysis.weaknesses?.length > 0 && (
+                                        <NeoCard className="p-3 border-l-4 border-neo-maroon">
+                                          <p className="text-[10px] uppercase font-bold text-neo-maroon mb-2 flex items-center gap-1">
+                                            <XCircle className="w-3 h-3" /> Weaknesses
+                                          </p>
+                                          <ul className="space-y-1">
+                                            {competitiveData.llm_analysis.weaknesses.map((w, i) => (
+                                              <li key={i} className="text-[11px] sm:text-xs text-neo-navy flex items-start gap-1.5">
+                                                <span className="text-neo-maroon mt-0.5">▸</span> {w}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </NeoCard>
+                                      )}
+                                      {/* Opportunities */}
+                                      {competitiveData.llm_analysis.opportunities?.length > 0 && (
+                                        <NeoCard className="p-3 border-l-4 border-neo-orange">
+                                          <p className="text-[10px] uppercase font-bold text-neo-orange mb-2 flex items-center gap-1">
+                                            <Lightbulb className="w-3 h-3" /> Opportunities
+                                          </p>
+                                          <ul className="space-y-1">
+                                            {competitiveData.llm_analysis.opportunities.map((o, i) => (
+                                              <li key={i} className="text-[11px] sm:text-xs text-neo-navy flex items-start gap-1.5">
+                                                <span className="text-neo-orange mt-0.5">▸</span> {o}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </NeoCard>
+                                      )}
+                                      {/* Threats */}
+                                      {competitiveData.llm_analysis.threats?.length > 0 && (
+                                        <NeoCard className="p-3 border-l-4 border-neo-navy">
+                                          <p className="text-[10px] uppercase font-bold text-neo-navy mb-2 flex items-center gap-1">
+                                            <Shield className="w-3 h-3" /> Threats
+                                          </p>
+                                          <ul className="space-y-1">
+                                            {competitiveData.llm_analysis.threats.map((th, i) => (
+                                              <li key={i} className="text-[11px] sm:text-xs text-neo-navy flex items-start gap-1.5">
+                                                <span className="text-neo-navy mt-0.5">▸</span> {th}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </NeoCard>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Action Items */}
+                                  {competitiveData.llm_analysis.action_items?.length > 0 && (
+                                    <NeoCard className="p-3 sm:p-4 bg-neo-navy">
+                                      <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-orange mb-2 flex items-center gap-1">
+                                        <Zap className="w-3 h-3" /> Action Items
+                                      </p>
+                                      <ol className="space-y-1.5">
+                                        {competitiveData.llm_analysis.action_items.map((a, i) => (
+                                          <li key={i} className="text-[11px] sm:text-xs text-neo-cream flex items-start gap-2">
+                                            <span className="bg-neo-orange text-neo-navy font-black text-[10px] w-5 h-5 flex items-center justify-center flex-shrink-0">
+                                              {i + 1}
+                                            </span>
+                                            {a}
+                                          </li>
+                                        ))}
+                                      </ol>
+                                    </NeoCard>
+                                  )}
+
+                                  {/* Market Analysis Paragraph */}
+                                  {competitiveData.llm_analysis.market_analysis && (
+                                    <NeoCard className="p-3 sm:p-4">
+                                      <p className="text-[10px] sm:text-xs uppercase font-bold text-neo-navy/60 mb-1 flex items-center gap-1">
+                                        <Brain className="w-3 h-3" />
+                                        Detailed Market Analysis
+                                      </p>
+                                      <p className="text-xs sm:text-sm text-neo-navy/80 leading-relaxed whitespace-pre-line">
+                                        {competitiveData.llm_analysis.market_analysis}
+                                      </p>
+                                    </NeoCard>
+                                  )}
+
+                                  {/* Data Sources Footer */}
+                                  <div className="flex items-center gap-2 text-[10px] text-neo-navy/40">
+                                    <Info className="w-3 h-3" />
+                                    <span>
+                                      Sources: {competitiveData.meta?.sources_used?.join(', ') || 'N/A'}
+                                      {' · '}
+                                      {competitiveData.meta?.competitor_count || 0} competitors analyzed
+                                      {competitiveData.meta?.llm_analysis_available && ' · AI analysis included'}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Fallback if no LLM analysis */}
+                              {!competitiveData.llm_analysis && competitiveData.meta && (
+                                <div className="mt-3 p-3 bg-neo-navy/5 border-[2px] border-dashed border-neo-navy/20">
+                                  <p className="text-[10px] sm:text-xs text-neo-navy/50 flex items-center gap-1">
+                                    <Info className="w-3 h-3" />
+                                    AI deep analysis was not available for this query. Rule-based insights are shown in the Insights tab.
+                                  </p>
+                                </div>
                               )}
                             </div>
                           )}
@@ -950,7 +1174,6 @@ export default function Authority() {
                 </div>
               </NeoCard>
             </div>
-          </div>
         </div>
       </section>
     </Layout>

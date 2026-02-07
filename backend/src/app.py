@@ -24,6 +24,13 @@ from .api import (
 )
 from .analytics import analytics_router
 
+# Import competitive intelligence router from buisness anlytics module
+import sys, os
+_ba_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "buisness anlytics")
+if _ba_path not in sys.path:
+    sys.path.insert(0, _ba_path)
+from competitive_intelligence import competitive_router
+
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
@@ -114,6 +121,7 @@ def create_app() -> FastAPI:
     
     app.include_router(router)
     app.include_router(analytics_router)
+    app.include_router(competitive_router)
     
     # Root endpoint
     @app.get("/", tags=["Root"])

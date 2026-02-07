@@ -140,6 +140,7 @@ def _evaluate_price_rank(ctx: Dict[str, Any]) -> List[CompetitiveInsight]:
         return insights
     
     rank_label = ctx.get("rank_estimate", "N/A")
+    percentile = ctx.get("percentile", 50)
     
     if percentile >= 90:
         insights.append(CompetitiveInsight(

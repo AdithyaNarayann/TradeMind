@@ -12,11 +12,13 @@ This module is designed as an isolated plugin:
 - Graceful fallback when scraping fails
 
 Architecture:
-    Request → Scraper → Normalizer → Comparison → Insights → Response
+    Request → Scraper → Normalizer → Comparison → Insights → LLM Analysis → Response
 """
 
 from .routes import router as competitive_router
+from .llm_analyzer import generate_llm_analysis
 
 __all__ = [
     "competitive_router",
+    "generate_llm_analysis",
 ]
