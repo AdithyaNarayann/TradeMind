@@ -16,33 +16,33 @@ function App() {
   return (
     <I18nProvider>
       <BrowserRouter>
-      <SessionProvider>
+        <SessionProvider>
           <LanguageModal />
-        <TranslationLoadingOverlay />
-        <Routes>
+          <TranslationLoadingOverlay />
+          <Routes>
             {/* Landing */}
             <Route path="/" element={<Landing />} />
-  
+
             {/* Reporter Routes */}
             <Route path="/reporter" element={<ReporterHome />} />
             <Route path="/reporter/report" element={<Report />} />
             <Route path="/reporter/silent" element={<SilentReport />} />
             <Route path="/r/:sessionId" element={<Report />} />
             <Route path="/report/:sessionId" element={<Report />} />
-  
+
             {/* Wallet */}
             <Route path="/wallet" element={<WalletDashboard />} />
-  
+
             {/* Authority */}
             <Route path="/authority" element={<Authority />} />
-  
+
             {/* Jury */}
             <Route path="/jury" element={<JuryDashboard />} />
-  
+
             {/* Reputation */}
             <Route path="/reputation" element={<ReputationPage />} />
           </Routes>
-      </SessionProvider>
+        </SessionProvider>
       </BrowserRouter>
     </I18nProvider>
   );

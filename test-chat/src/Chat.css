@@ -1,0 +1,93 @@
+/* Chat specific styles */
+
+.chat-message-user {
+    animation: slideInRight 0.3s ease-out;
+}
+
+.chat-message-bot {
+    animation: slideInLeft 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Neo-Brutalist input styling */
+input[type="text"] {
+    font-family: 'Inter', sans-serif;
+    transition: all 0.2s;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: #FF7D00 !important;
+    box-shadow: 3px 3px 0px #001524;
+}
+
+input[type="text"]:disabled {
+    background-color: #f0f0f0;
+    cursor: not-allowed;
+}
+
+/* Button hover effects */
+.neo-button {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+}
+
+.neo-card {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #FFECD1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #15616D;
+    border: 2px solid #001524;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #FF7D00;
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+    .neo-card {
+        box-shadow: 2px 2px 0px #001524;
+    }
+
+    .neo-button {
+        box-shadow: 2px 2px 0px #001524;
+    }
+
+    input[type="text"]:focus {
+        box-shadow: 2px 2px 0px #001524;
+    }
+}

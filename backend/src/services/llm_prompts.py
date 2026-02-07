@@ -175,3 +175,219 @@ RULES:
 - Keep it 1-2 sentences
 
 Generate the session expired message:"""
+
+
+# =============================================================================
+# CONTEXT ANALYSIS AGENT PROMPTS (AI-Powered Strategic Analysis)
+# =============================================================================
+
+CONTEXT_ANALYSIS_SYSTEM_PROMPT = """You are an expert negotiation strategist AI. Your role is to analyze a seller's product, inventory, and strategic preferences to determine the optimal negotiation posture.
+
+You must respond ONLY with valid JSON. No explanations, no markdown, no code blocks — pure JSON only.
+
+You understand:
+- Price psychology and anchoring
+- Concession patterns and diminishing returns
+- Inventory pressure and urgency dynamics
+- Relationship vs profit trade-offs
+- Risk tolerance calibration"""
+
+
+def build_context_analysis_prompt(
+    product_name: str,
+    base_price: str,
+    cost_price: str,
+    min_acceptable_price: str,
+    max_loss_percentage: str,
+    available_quantity: int,
+    requested_quantity: int,
+    inventory_pressure: str,
+    sales_frequency: str,
+    mode: str,
+    urgency: str,
+    relationship_priority: str,
+    max_rounds: int,
+) -> str:
+    """Build prompt for AI-powered context analysis."""
+    return f"""Analyze this negotiation scenario and determine the optimal strategic posture.
+
+PRODUCT DATA:
+- Product: {product_name}
+- Base/listed price: ${base_price} per unit
+- Cost to seller: ${cost_price} per unit
+- Seller's minimum acceptable price: ${min_acceptable_price} per unit
+- Maximum allowed loss percentage: {max_loss_percentage}%
+
+INVENTORY CONTEXT:
+- Available quantity: {available_quantity} units
+- Buyer wants: {requested_quantity} units
+- Inventory pressure: {inventory_pressure} (how urgently seller needs to move stock)
+- Sales frequency: {sales_frequency} (how often this product sells)
+
+SELLER STRATEGY:
+- Mode: {mode} (MAX_PROFIT = maximize earnings, MIN_LOSS = minimize losses/clear stock)
+- Urgency: {urgency} (how urgently seller wants to close the deal)
+- Relationship priority: {relationship_priority} (how important the buyer relationship is)
+- Maximum negotiation rounds: {max_rounds}
+
+Based on this analysis, provide the optimal negotiation posture as JSON with these EXACT fields:
+
+{{
+  "aggressiveness": <float 0.0-1.0, how firmly to defend price. High = fewer concessions>,
+  "flexibility": <float 0.0-1.0, willingness to make concessions>,
+  "risk_tolerance": <float 0.0-1.0, willingness to walk away from deal>,
+  "target_price": <float, ideal closing price per unit — between min_acceptable_price and base_price>,
+  "reservation_price": <float, minimum acceptable price — at or above min_acceptable_price>,
+  "walk_away_price": <float, absolute minimum — at or above min_acceptable_price (can be below cost only if max_loss_percentage > 0)>,
+  "total_concession_budget": <float, max dollars to concede from target_price down to reservation_price>,
+  "per_round_concession": <float, suggested dollar concession per round>,
+  "preferred_closing_round": <int, ideal round to close (1 to max_rounds)>,
+  "quantity_discount_factor": <float 0.90-1.0, multiplier for bulk orders. 1.0 = no discount, 0.95 = 5% discount>
+}}
+
+CONSTRAINTS:
+- target_price MUST be >= reservation_price >= walk_away_price
+- walk_away_price MUST be >= min_acceptable_price (${min_acceptable_price})
+- target_price MUST be <= base_price (${base_price})
+- total_concession_budget = target_price - reservation_price
+- per_round_concession = total_concession_budget / effective_rounds
+- All prices must be positive numbers
+
+Respond with ONLY the JSON object:"""
+
+
+# =============================================================================
+# PRICING STRATEGY AGENT PROMPTS (AI-Powered Pricing Decisions)
+# =============================================================================
+
+PRICING_STRATEGY_SYSTEM_PROMPT = """You are an expert AI pricing strategist for negotiations. You analyze buyer offers and make optimal pricing decisions.
+
+You must respond ONLY with valid JSON. No explanations, no markdown, no code blocks — pure JSON only.
+
+You understand:
+- When to accept, counter, or reject offers
+- How to compute optimal counter-offer prices
+- Concession pacing (start small, increase in late rounds)
+- Detecting buyer patterns (are they moving up? stalling?)
+- Matching concession reciprocity (if buyer isn't budging, neither should we)
+- When to walk away vs close the deal
+
+CRITICAL CONSTRAINTS:
+1. NEVER accept a price below the walk_away_price
+2. NEVER counter with a price below the reservation_price
+3. Track concession budget — don't concede more than available
+4. In MAX_PROFIT mode: be firm, protect margins
+5. In MIN_LOSS mode: be flexible, prioritize closing"""
+
+
+def build_initial_offer_pricing_prompt(
+    product_name: str,
+    base_price: str,
+    cost_price: str,
+    min_acceptable_price: str,
+    target_price: str,
+    aggressiveness: str,
+    mode: str,
+    requested_quantity: int,
+    quantity_discount_factor: str,
+) -> str:
+    """Build prompt for AI-powered initial offer computation."""
+    return f"""Determine the optimal opening offer price for this negotiation.
+
+PRODUCT:
+- Product: {product_name}
+- Base/listed price: ${base_price} per unit
+- Cost to seller: ${cost_price} per unit
+- Min acceptable price: ${min_acceptable_price} per unit
+- Strategic target price: ${target_price} per unit
+
+CONTEXT:
+- Aggressiveness level: {aggressiveness} (0=very flexible, 1=very firm)
+- Mode: {mode}
+- Buyer wants: {requested_quantity} units
+- Quantity discount factor: {quantity_discount_factor} (1.0 = no discount)
+
+RULES:
+- Opening offer should be at or above the target price
+- More aggressive sellers should start closer to base price
+- Consider the anchoring effect — a higher initial offer gives more room to negotiate
+- Apply quantity discount factor if buyer wants multiple units
+- The offer MUST be between min_acceptable_price and base_price
+
+Respond with ONLY this JSON:
+{{
+  "initial_offer": <float, the opening offer price per unit>,
+  "reasoning": "<brief 1-sentence reasoning>"
+}}"""
+
+
+def build_evaluate_offer_prompt(
+    product_name: str,
+    base_price: str,
+    cost_price: str,
+    min_acceptable_price: str,
+    buyer_offered: str,
+    buyer_message: str,
+    current_round: int,
+    max_rounds: int,
+    our_last_offer: str,
+    buyer_last_offer: str,
+    target_price: str,
+    reservation_price: str,
+    walk_away_price: str,
+    aggressiveness: str,
+    flexibility: str,
+    risk_tolerance: str,
+    mode: str,
+    concession_used: str,
+    total_concession_budget: str,
+    offers_history: str,
+    buyer_history: str,
+    requested_quantity: int,
+) -> str:
+    """Build prompt for AI-powered offer evaluation."""
+    return f"""Evaluate this buyer's offer and make a pricing decision.
+
+PRODUCT:
+- Product: {product_name}
+- Base price: ${base_price} | Cost: ${cost_price} | Min acceptable: ${min_acceptable_price}
+
+CURRENT OFFER:
+- Buyer offers: ${buyer_offered} per unit
+- Buyer's message: "{buyer_message}"
+- Round: {current_round} of {max_rounds}
+
+NEGOTIATION STATE:
+- Our last offer: ${our_last_offer} per unit
+- Buyer's previous offer: ${buyer_last_offer} per unit
+- Our offer history: [{offers_history}]
+- Buyer offer history: [{buyer_history}]
+
+STRATEGIC POSTURE:
+- Mode: {mode}
+- Target price: ${target_price} | Reservation: ${reservation_price} | Walk-away: ${walk_away_price}
+- Aggressiveness: {aggressiveness} | Flexibility: {flexibility} | Risk tolerance: {risk_tolerance}
+
+CONCESSION BUDGET:
+- Total budget: ${total_concession_budget}
+- Already used: ${concession_used}
+- Remaining: ${str(float(total_concession_budget) - float(concession_used))}
+
+QUANTITY: {requested_quantity} units
+
+DECISION RULES:
+- "accept" if buyer's offer is at or above target_price, OR at/above reservation_price in late rounds or MIN_LOSS mode
+- "counter" if buyer's offer is above walk_away_price but below acceptance threshold — provide a new counter price
+- "reject" if buyer's offer is at/below walk_away_price AND we're in the final round, OR if no progress is possible
+- Counter price MUST be >= reservation_price (${reservation_price})
+- Counter price should be LOWER than our last offer (${our_last_offer}) to show concession
+- Consider buyer's movement pattern — are they increasing offers? By how much?
+- Match concession reciprocity — if buyer barely moved, concede less
+- In late rounds, be more willing to accept near reservation_price
+
+Respond with ONLY this JSON:
+{{
+  "decision": "<accept|counter|reject>",
+  "counter_price": <float or null, required if decision is "counter">,
+  "reasoning": "<brief 1-sentence reasoning>"
+}}"""

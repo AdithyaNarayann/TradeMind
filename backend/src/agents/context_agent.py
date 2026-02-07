@@ -1,8 +1,15 @@
 """
-Context Analysis Agent
+Context Analysis Agent — AI-Powered
 
-Purpose: Interpret seller inputs into strategic posture.
+Purpose: Interpret seller inputs into strategic posture using LLM reasoning.
 This agent performs NO negotiation - only analysis.
+
+Architecture:
+1. Send product/inventory/strategy data to LLM
+2. LLM reasons about optimal strategy and returns structured JSON
+3. Parse and validate the response
+4. Clamp all values to safe ranges
+5. If LLM fails → fall back to basic heuristic calculation
 
 Outputs:
 - Aggressiveness score (0-1)
@@ -10,9 +17,11 @@ Outputs:
 - Preferred closing round
 - Risk tolerance level
 """
-from decimal import Decimal
+import json
+import structlog
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Optional
 
 from ..models import (
     ProductData,
@@ -24,6 +33,10 @@ from ..models import (
     UrgencyLevel,
     RelationshipPriority,
 )
+from ..services.llm_client import get_llm_client, OpenRouterClient
+from ..services import llm_prompts
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -58,36 +71,14 @@ class StrategicPosture:
 
 class ContextAnalysisAgent:
     """
-    Analyzes seller inputs to produce a strategic negotiation posture.
+    AI-powered context analysis agent.
     
-    This agent is stateless and deterministic.
-    Given identical inputs, it always produces identical outputs.
+    Uses LLM to reason about optimal negotiation strategy based on
+    seller inputs. Falls back to basic heuristics if LLM is unavailable.
     """
     
-    # Weight factors for computing aggressiveness
-    URGENCY_WEIGHTS = {
-        UrgencyLevel.LOW: Decimal("0.9"),
-        UrgencyLevel.MEDIUM: Decimal("0.6"),
-        UrgencyLevel.HIGH: Decimal("0.3"),
-    }
-    
-    INVENTORY_PRESSURE_WEIGHTS = {
-        PressureLevel.LOW: Decimal("0.9"),
-        PressureLevel.MEDIUM: Decimal("0.6"),
-        PressureLevel.HIGH: Decimal("0.3"),
-    }
-    
-    SALES_FREQUENCY_WEIGHTS = {
-        FrequencyLevel.LOW: Decimal("0.7"),    # Rare item = be aggressive
-        FrequencyLevel.MEDIUM: Decimal("0.5"),
-        FrequencyLevel.HIGH: Decimal("0.3"),   # Common item = more flexible
-    }
-    
-    RELATIONSHIP_WEIGHTS = {
-        RelationshipPriority.LOW: Decimal("0.9"),
-        RelationshipPriority.MEDIUM: Decimal("0.6"),
-        RelationshipPriority.HIGH: Decimal("0.3"),
-    }
+    def __init__(self, llm_client: Optional[OpenRouterClient] = None):
+        self.llm = llm_client or get_llm_client()
     
     def analyze(
         self,
@@ -96,237 +87,251 @@ class ContextAnalysisAgent:
         strategy: StrategicControls,
     ) -> StrategicPosture:
         """
-        Analyze inputs and produce strategic posture.
+        Analyze inputs and produce strategic posture using AI.
         
         This is the main entry point for context analysis.
         """
-        # Compute base metrics
-        aggressiveness = self._compute_aggressiveness(inventory, strategy)
-        flexibility = self._compute_flexibility(strategy)
-        risk_tolerance = self._compute_risk_tolerance(strategy, inventory)
+        # Try AI-powered analysis first
+        if self.llm.enabled:
+            try:
+                posture = self._ai_analyze(product, inventory, strategy)
+                if posture is not None:
+                    logger.info("ai_context_analysis_used", aggressiveness=str(posture.aggressiveness))
+                    return posture
+            except Exception as e:
+                logger.error("ai_context_analysis_error", error=str(e))
         
-        # Compute price targets
-        target_price, reservation_price, walk_away_price = self._compute_price_targets(
-            product, strategy, aggressiveness
+        # Fallback to basic heuristic
+        logger.info("context_analysis_fallback")
+        return self._fallback_analyze(product, inventory, strategy)
+    
+    def _ai_analyze(
+        self,
+        product: ProductData,
+        inventory: InventoryContext,
+        strategy: StrategicControls,
+    ) -> Optional[StrategicPosture]:
+        """Use LLM to analyze context and produce strategic posture."""
+        prompt = llm_prompts.build_context_analysis_prompt(
+            product_name=product.product_name,
+            base_price=str(product.base_price),
+            cost_price=str(product.cost_price),
+            min_acceptable_price=str(product.min_acceptable_price),
+            max_loss_percentage=str(product.max_loss_percentage),
+            available_quantity=inventory.available_quantity,
+            requested_quantity=inventory.requested_quantity,
+            inventory_pressure=inventory.inventory_pressure.value,
+            sales_frequency=inventory.sales_frequency.value,
+            mode=strategy.mode.value,
+            urgency=strategy.urgency.value,
+            relationship_priority=strategy.relationship_priority.value,
+            max_rounds=strategy.max_rounds,
         )
         
-        # Compute concession strategy
-        concession_budget = self._compute_concession_budget(
-            product, target_price, reservation_price
+        result = self.llm.generate_sync(
+            system_prompt=llm_prompts.CONTEXT_ANALYSIS_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            temperature=0.4,  # Lower temp for more consistent analysis
         )
-        per_round_concession = self._compute_per_round_concession(
-            concession_budget, strategy.max_rounds, strategy
-        )
-        preferred_round = self._compute_preferred_closing_round(strategy)
         
-        # Compute quantity factor
-        quantity_factor = self._compute_quantity_discount(
-            inventory, product, strategy
+        if not result.success:
+            logger.warning("ai_context_analysis_llm_failed", error=result.error)
+            return None
+        
+        # Parse JSON response
+        try:
+            # Clean response - strip markdown code blocks if present
+            content = result.content.strip()
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+            
+            data = json.loads(content)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("ai_context_analysis_parse_error", error=str(e), content=result.content[:200])
+            return None
+        
+        # Validate and build posture with guardrails
+        try:
+            return self._build_posture_from_ai(data, product, strategy)
+        except Exception as e:
+            logger.warning("ai_context_analysis_validation_error", error=str(e))
+            return None
+    
+    def _build_posture_from_ai(
+        self,
+        data: dict,
+        product: ProductData,
+        strategy: StrategicControls,
+    ) -> StrategicPosture:
+        """Build and validate StrategicPosture from AI response with guardrails."""
+        base = product.base_price
+        cost = product.cost_price
+        floor = product.min_acceptable_price
+        
+        # Clamp core metrics to [0.1, 1.0]
+        aggressiveness = self._clamp_decimal(data.get("aggressiveness", 0.5), "0.1", "1.0")
+        flexibility = self._clamp_decimal(data.get("flexibility", 0.5), "0.1", "1.0")
+        risk_tolerance = self._clamp_decimal(data.get("risk_tolerance", 0.5), "0.1", "1.0")
+        
+        # Validate price targets with hard guardrails
+        target_price = self._to_decimal(data.get("target_price", str(base)))
+        reservation_price = self._to_decimal(data.get("reservation_price", str(floor)))
+        walk_away_price = self._to_decimal(data.get("walk_away_price", str(floor)))
+        
+        # HARD GUARDRAILS — AI cannot violate these
+        target_price = min(base, max(floor, target_price))
+        reservation_price = min(target_price, max(floor, reservation_price))
+        
+        # Walk-away: allow below cost only if max_loss_percentage > 0
+        if strategy.mode == NegotiationMode.MIN_LOSS and product.max_loss_percentage > 0:
+            max_loss = cost * (product.max_loss_percentage / Decimal("100"))
+            absolute_floor = cost - max_loss
+        else:
+            absolute_floor = floor
+        
+        walk_away_price = min(reservation_price, max(absolute_floor, walk_away_price))
+        
+        # Ensure hierarchy: target >= reservation >= walk_away
+        target_price = max(target_price, reservation_price)
+        reservation_price = max(reservation_price, walk_away_price)
+        
+        # Concession budget
+        total_concession_budget = target_price - reservation_price
+        
+        # Per-round concession
+        ai_per_round = self._to_decimal(data.get("per_round_concession", "0"))
+        max_per_round = total_concession_budget / Decimal(str(max(1, strategy.max_rounds)))
+        per_round_concession = min(ai_per_round, max_per_round * Decimal("2")) if ai_per_round > 0 else max_per_round
+        
+        # Preferred closing round
+        preferred_closing_round = int(data.get("preferred_closing_round", 3))
+        preferred_closing_round = max(1, min(preferred_closing_round, strategy.max_rounds))
+        
+        # Quantity discount factor
+        quantity_discount_factor = self._clamp_decimal(
+            data.get("quantity_discount_factor", 1.0), "0.85", "1.0"
         )
         
         return StrategicPosture(
             aggressiveness=aggressiveness,
             flexibility=flexibility,
             risk_tolerance=risk_tolerance,
-            target_price=target_price,
-            reservation_price=reservation_price,
-            walk_away_price=walk_away_price,
-            total_concession_budget=concession_budget,
-            per_round_concession=per_round_concession,
-            preferred_closing_round=preferred_round,
-            quantity_discount_factor=quantity_factor,
+            target_price=self._round_price(target_price),
+            reservation_price=self._round_price(reservation_price),
+            walk_away_price=self._round_price(walk_away_price),
+            total_concession_budget=self._round_price(total_concession_budget),
+            per_round_concession=self._round_price(per_round_concession),
+            preferred_closing_round=preferred_closing_round,
+            quantity_discount_factor=quantity_discount_factor,
         )
     
-    def _compute_aggressiveness(
-        self,
-        inventory: InventoryContext,
-        strategy: StrategicControls,
-    ) -> Decimal:
-        """
-        Compute how aggressively to defend price.
-        
-        High aggressiveness = fewer/smaller concessions, willing to walk away.
-        Low aggressiveness = more flexible, prioritize closing.
-        """
-        # Mode is primary factor
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            base = Decimal("0.8")
-        else:
-            base = Decimal("0.4")
-        
-        # Adjust for urgency (high urgency = less aggressive)
-        urgency_factor = self.URGENCY_WEIGHTS[strategy.urgency]
-        
-        # Adjust for inventory pressure
-        inventory_factor = self.INVENTORY_PRESSURE_WEIGHTS[inventory.inventory_pressure]
-        
-        # Weighted average
-        aggressiveness = (base * Decimal("0.5") + 
-                         urgency_factor * Decimal("0.25") +
-                         inventory_factor * Decimal("0.25"))
-        
-        return min(Decimal("1.0"), max(Decimal("0.1"), aggressiveness))
+    # ==========================================================================
+    # Fallback Heuristic (if LLM unavailable)
+    # ==========================================================================
     
-    def _compute_flexibility(self, strategy: StrategicControls) -> Decimal:
-        """Compute willingness to make concessions."""
-        if strategy.mode == NegotiationMode.MIN_LOSS:
-            base = Decimal("0.7")
-        else:
-            base = Decimal("0.3")
-        
-        # Relationship priority affects flexibility
-        relationship_factor = Decimal("1.0") - self.RELATIONSHIP_WEIGHTS[strategy.relationship_priority]
-        
-        flexibility = base + (relationship_factor * Decimal("0.2"))
-        return min(Decimal("1.0"), max(Decimal("0.1"), flexibility))
-    
-    def _compute_risk_tolerance(
-        self,
-        strategy: StrategicControls,
-        inventory: InventoryContext,
-    ) -> Decimal:
-        """
-        Compute willingness to walk away from deal.
-        
-        High risk tolerance = willing to lose deal for better margin.
-        Low risk tolerance = prioritize closing at any reasonable price.
-        """
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            base = Decimal("0.7")
-        else:
-            base = Decimal("0.3")
-        
-        # High inventory pressure reduces risk tolerance
-        if inventory.inventory_pressure == PressureLevel.HIGH:
-            base -= Decimal("0.2")
-        
-        # High urgency reduces risk tolerance
-        if strategy.urgency == UrgencyLevel.HIGH:
-            base -= Decimal("0.2")
-        
-        return min(Decimal("1.0"), max(Decimal("0.1"), base))
-    
-    def _compute_price_targets(
+    def _fallback_analyze(
         self,
         product: ProductData,
+        inventory: InventoryContext,
         strategy: StrategicControls,
-        aggressiveness: Decimal,
-    ) -> Tuple[Decimal, Decimal, Decimal]:
-        """
-        Compute target, reservation, and walk-away prices.
-        
-        These form a price ladder that guides the negotiation.
-        """
+    ) -> StrategicPosture:
+        """Basic heuristic fallback when LLM is unavailable."""
         base = product.base_price
         cost = product.cost_price
         floor = product.min_acceptable_price
         
-        # Target price: where we want to close
-        # More aggressive = closer to base price
+        # Simple aggressiveness based on mode
+        if strategy.mode == NegotiationMode.MAX_PROFIT:
+            aggressiveness = Decimal("0.75")
+            flexibility = Decimal("0.3")
+            risk_tolerance = Decimal("0.7")
+        else:
+            aggressiveness = Decimal("0.4")
+            flexibility = Decimal("0.7")
+            risk_tolerance = Decimal("0.3")
+        
+        # Urgency adjustments
+        if strategy.urgency == UrgencyLevel.HIGH:
+            aggressiveness -= Decimal("0.15")
+            risk_tolerance -= Decimal("0.2")
+        elif strategy.urgency == UrgencyLevel.LOW:
+            aggressiveness += Decimal("0.1")
+        
+        # Inventory pressure adjustments
+        if inventory.inventory_pressure == PressureLevel.HIGH:
+            aggressiveness -= Decimal("0.15")
+            risk_tolerance -= Decimal("0.2")
+        
+        aggressiveness = max(Decimal("0.1"), min(Decimal("1.0"), aggressiveness))
+        flexibility = max(Decimal("0.1"), min(Decimal("1.0"), flexibility))
+        risk_tolerance = max(Decimal("0.1"), min(Decimal("1.0"), risk_tolerance))
+        
+        # Price targets
         margin = base - cost
         target_discount = margin * (Decimal("1.0") - aggressiveness) * Decimal("0.3")
-        target = base - target_discount
+        target_price = base - target_discount
         
-        # Reservation price: our internal minimum
-        # This is what we'd grudgingly accept
         if strategy.mode == NegotiationMode.MAX_PROFIT:
-            # In MAX_PROFIT, reservation is well above floor
-            reservation = floor + (target - floor) * Decimal("0.3")
+            reservation_price = floor + (target_price - floor) * Decimal("0.3")
         else:
-            # In MIN_LOSS, reservation can be at floor
-            reservation = floor
+            reservation_price = floor
         
-        # Walk-away price: absolute minimum, may allow loss in MIN_LOSS
         if strategy.mode == NegotiationMode.MIN_LOSS and product.max_loss_percentage > 0:
             max_loss = cost * (product.max_loss_percentage / Decimal("100"))
-            walk_away = cost - max_loss
+            walk_away_price = cost - max_loss
         else:
-            walk_away = floor
+            walk_away_price = floor
         
-        # Ensure hierarchy
-        target = max(target, reservation)
-        reservation = max(reservation, walk_away)
+        target_price = max(target_price, reservation_price)
+        reservation_price = max(reservation_price, walk_away_price)
         
-        return target, reservation, walk_away
-    
-    def _compute_concession_budget(
-        self,
-        product: ProductData,
-        target_price: Decimal,
-        reservation_price: Decimal,
-    ) -> Decimal:
-        """Compute total concession budget in dollars."""
-        return target_price - reservation_price
-    
-    def _compute_per_round_concession(
-        self,
-        total_budget: Decimal,
-        max_rounds: int,
-        strategy: StrategicControls,
-    ) -> Decimal:
-        """
-        Compute suggested concession per round.
+        concession_budget = target_price - reservation_price
+        per_round = concession_budget / Decimal(str(max(1, strategy.max_rounds)))
         
-        In MAX_PROFIT mode: back-loaded (smaller early, bigger late)
-        In MIN_LOSS mode: more uniform distribution
-        """
-        if max_rounds <= 1:
-            return total_budget
+        preferred_round = min(3, strategy.max_rounds) if strategy.mode == NegotiationMode.MAX_PROFIT else min(2, strategy.max_rounds)
         
-        # Reserve some budget for later rounds
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            # Use less budget early
-            effective_rounds = max_rounds + 2  # Spread thinner
-        else:
-            effective_rounds = max_rounds
-        
-        return total_budget / Decimal(str(effective_rounds))
-    
-    def _compute_preferred_closing_round(self, strategy: StrategicControls) -> int:
-        """Compute ideal round to close deal."""
-        max_rounds = strategy.max_rounds
-        
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            # Don't rush in MAX_PROFIT - let buyer come up
-            return min(3, max_rounds)
-        else:
-            # Close faster in MIN_LOSS
-            return min(2, max_rounds)
-    
-    def _compute_quantity_discount(
-        self,
-        inventory: InventoryContext,
-        product: ProductData,
-        strategy: StrategicControls,
-    ) -> Decimal:
-        """
-        Compute per-unit discount factor for bulk orders.
-        
-        Returns a multiplier (e.g., 0.95 = 5% discount for volume).
-        """
-        requested = inventory.requested_quantity
-        available = inventory.available_quantity
-        
-        # Base discount for buying large portion of inventory
-        ratio = Decimal(str(requested)) / Decimal(str(available))
-        
-        if ratio >= Decimal("0.8"):
-            # Buying 80%+ of stock
-            base_discount = Decimal("0.08")  # Up to 8%
-        elif ratio >= Decimal("0.5"):
-            base_discount = Decimal("0.05")  # Up to 5%
+        # Quantity discount
+        ratio = Decimal(str(inventory.requested_quantity)) / Decimal(str(inventory.available_quantity))
+        if ratio >= Decimal("0.5"):
+            qty_discount = Decimal("0.95")
         elif ratio >= Decimal("0.25"):
-            base_discount = Decimal("0.03")  # Up to 3%
+            qty_discount = Decimal("0.97")
         else:
-            base_discount = Decimal("0.0")
+            qty_discount = Decimal("1.0")
         
-        # Reduce discount in MAX_PROFIT mode
-        if strategy.mode == NegotiationMode.MAX_PROFIT:
-            base_discount *= Decimal("0.5")
-        
-        # Never discount below margin
-        margin_percentage = (product.base_price - product.cost_price) / product.base_price
-        if base_discount > margin_percentage * Decimal("0.5"):
-            base_discount = margin_percentage * Decimal("0.5")
-        
-        return Decimal("1.0") - base_discount
+        return StrategicPosture(
+            aggressiveness=aggressiveness,
+            flexibility=flexibility,
+            risk_tolerance=risk_tolerance,
+            target_price=self._round_price(target_price),
+            reservation_price=self._round_price(reservation_price),
+            walk_away_price=self._round_price(walk_away_price),
+            total_concession_budget=self._round_price(concession_budget),
+            per_round_concession=self._round_price(per_round),
+            preferred_closing_round=preferred_round,
+            quantity_discount_factor=qty_discount,
+        )
+    
+    # ==========================================================================
+    # Utility Methods
+    # ==========================================================================
+    
+    def _to_decimal(self, value, default: str = "0") -> Decimal:
+        """Safely convert value to Decimal."""
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal(default)
+    
+    def _clamp_decimal(self, value, low: str, high: str) -> Decimal:
+        """Convert to Decimal and clamp to range."""
+        d = self._to_decimal(value, low)
+        return max(Decimal(low), min(Decimal(high), d))
+    
+    def _round_price(self, price: Decimal) -> Decimal:
+        """Round price to 2 decimal places."""
+        from decimal import ROUND_HALF_UP
+        return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
