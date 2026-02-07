@@ -16,6 +16,8 @@ from ..models import (
     CreateSessionRequest,
     CreateSessionResponse,
     BuyerOffer,
+    ChatMessage,
+    ChatResponse,
     NegotiationTurnResponse,
     SessionSummary,
     NegotiationAnalytics,
@@ -153,6 +155,45 @@ async def submit_offer(
         response = engine.process_turn(
             session_id=session_id,
             buyer_offer=body,
+        )
+        return response
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =============================================================================
+# Chat Endpoint (Free-text Messages)
+# =============================================================================
+
+@router.post(
+    "/sessions/{session_id}/chat",
+    response_model=ChatResponse,
+    summary="Send Chat Message",
+    description="""
+    Send a free-text message in a negotiation session.
+    
+    The AI will:
+    1. Understand the buyer's intent from natural language
+    2. Extract a price offer if one is present
+    3. If a price is found, process it as a negotiation turn
+    4. If no price, respond conversationally in character
+    
+    This endpoint supports any text — greetings, questions, price offers,
+    discount requests, etc.
+    """,
+)
+@limiter.limit("30/minute")
+async def chat_message(
+    request: Request,
+    session_id: UUID,
+    body: ChatMessage,
+    engine: NegotiationEngine = Depends(get_engine),
+) -> ChatResponse:
+    """Process a free-text chat message."""
+    try:
+        response = engine.process_chat(
+            session_id=session_id,
+            chat_message=body,
         )
         return response
     except ValueError as e:
