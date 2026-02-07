@@ -37,7 +37,7 @@ from .llm_analyzer import generate_llm_analysis
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analytics", tags=["Competitive Intelligence"])
+router = APIRouter(prefix="/api/v1/analytics", tags=["Competitive Intelligence"])
 
 
 @router.post(
