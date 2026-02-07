@@ -77,6 +77,31 @@ export async function submitOffer(sessionId, offeredPrice, message = null, offer
     }
 }
 
+// Send a free-text chat message (AI understands intent)
+export async function sendChat(sessionId, message) {
+    try {
+        const body = { message };
+
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorData}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to send chat:', error);
+        throw error;
+    }
+}
+
 // Get session summary
 export async function getSession(sessionId) {
     try {

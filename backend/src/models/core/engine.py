@@ -24,6 +24,8 @@ from ..models import (
     CreateSessionRequest,
     CreateSessionResponse,
     BuyerOffer,
+    ChatMessage,
+    ChatResponse,
     NegotiationTurnRequest,
     NegotiationTurnResponse,
     PricingDecision,
@@ -39,7 +41,14 @@ from ..agents import (
     ConversationAgent,
     ConversationContext,
 )
+from ..services.llm_client import get_llm_client
+from ..services import llm_prompts
 from .session import SessionManager, NegotiationSession, get_session_manager
+
+import json
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class NegotiationEngine:
@@ -60,6 +69,7 @@ class NegotiationEngine:
         self.context_agent = ContextAnalysisAgent()
         self.pricing_agent = PricingStrategyAgent()
         self.conversation_agent = ConversationAgent()
+        self.llm = get_llm_client()
     
     # ==========================================================================
     # Public API
@@ -232,6 +242,152 @@ class NegotiationEngine:
         self.session_manager.close_session(session_id, status)
         
         return self.session_manager.get_session_summary(session_id)
+    
+    def process_chat(
+        self,
+        session_id: UUID,
+        chat_message: ChatMessage,
+    ) -> ChatResponse:
+        """
+        Process a free-text chat message from the buyer.
+        
+        Uses LLM to understand the message:
+        - If it contains a price offer → route to process_turn()
+        - If it's just conversation → reply in character
+        """
+        # Step 1: Get session
+        session = self.session_manager.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session {session_id} not found or expired")
+        
+        if session.status != NegotiationStatus.ACTIVE:
+            raise ValueError(f"Session {session_id} is not active: {session.status}")
+        
+        # Step 2: Build negotiation history for context
+        state = session.pricing_state
+        history_parts = []
+        for i, (our, buyer) in enumerate(zip(
+            state.offers_history if state else [],
+            state.buyer_history if state else []
+        )):
+            history_parts.append(f"R{i+1}: Seller=${our}, Buyer=${buyer}")
+        if state and len(state.offers_history) > len(state.buyer_history):
+            history_parts.append(f"Current seller offer: ${state.offers_history[-1]}")
+        history_str = "; ".join(history_parts) if history_parts else "Opening round — no offers exchanged yet"
+        
+        current_offer = str(state.current_offer) if state else str(session.initial_offer)
+        
+        # Step 3: Use LLM to understand buyer's message
+        if self.llm.enabled:
+            try:
+                extracted = self._understand_chat(chat_message.message, session, current_offer, history_str)
+                if extracted is not None:
+                    has_price, price, reply = extracted
+                    
+                    if has_price and price is not None and price > 0:
+                        # Route to pricing engine
+                        buyer_offer = BuyerOffer(
+                            offered_price=Decimal(str(price)),
+                            message=chat_message.message,
+                        )
+                        turn_response = self.process_turn(session_id, buyer_offer)
+                        
+                        return ChatResponse(
+                            session_id=session_id,
+                            message=turn_response.message,
+                            has_price_offer=True,
+                            extracted_price=Decimal(str(price)),
+                            round_number=turn_response.round_number,
+                            status=turn_response.status,
+                            pricing=turn_response.pricing,
+                            can_continue=turn_response.can_continue,
+                            rounds_remaining=turn_response.rounds_remaining,
+                        )
+                    else:
+                        # Pure conversation — return LLM reply
+                        return ChatResponse(
+                            session_id=session_id,
+                            message=reply or "Could you please make a specific price offer?",
+                            has_price_offer=False,
+                        )
+            except Exception as e:
+                logger.error("chat_understanding_error", error=str(e))
+        
+        # Fallback: try simple regex extraction
+        import re
+        match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
+        if match:
+            price = float(match.group(1))
+            if price > 0:
+                buyer_offer = BuyerOffer(
+                    offered_price=Decimal(str(price)),
+                    message=chat_message.message,
+                )
+                turn_response = self.process_turn(session_id, buyer_offer)
+                return ChatResponse(
+                    session_id=session_id,
+                    message=turn_response.message,
+                    has_price_offer=True,
+                    extracted_price=Decimal(str(price)),
+                    round_number=turn_response.round_number,
+                    status=turn_response.status,
+                    pricing=turn_response.pricing,
+                    can_continue=turn_response.can_continue,
+                    rounds_remaining=turn_response.rounds_remaining,
+                )
+        
+        # No price found and LLM failed — generic reply
+        return ChatResponse(
+            session_id=session_id,
+            message=f"Thank you for your interest in {session.product.product_name}! Our current offer is ${current_offer} per unit. Feel free to make a price offer and we'll see what we can work out.",
+            has_price_offer=False,
+        )
+    
+    def _understand_chat(
+        self,
+        buyer_message: str,
+        session: NegotiationSession,
+        current_offer: str,
+        history_str: str,
+    ) -> Optional[tuple]:
+        """Use LLM to understand buyer's free-text message."""
+        prompt = llm_prompts.build_chat_understanding_prompt(
+            buyer_message=buyer_message,
+            product_name=session.product.product_name,
+            base_price=str(session.product.base_price),
+            our_last_offer=current_offer,
+            current_round=session.pricing_state.current_round if session.pricing_state else 0,
+            max_rounds=session.strategy.max_rounds,
+            mode=session.strategy.mode.value,
+            negotiation_history=history_str,
+        )
+        
+        result = self.llm.generate_sync(
+            system_prompt=llm_prompts.CHAT_UNDERSTANDING_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            temperature=0.4,
+        )
+        
+        if not result.success:
+            return None
+        
+        try:
+            content = result.content.strip()
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+            
+            data = json.loads(content)
+            has_price = data.get("has_price", False)
+            extracted_price = data.get("extracted_price")
+            reply = data.get("reply", "")
+            
+            return (has_price, extracted_price, reply)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("chat_understanding_parse_error", error=str(e))
+            return None
     
     def get_session(self, session_id: UUID) -> Optional[SessionSummary]:
         """Get session summary by ID."""
