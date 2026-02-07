@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, Loader2, AlertCircle, TrendingUp, DollarSign, RotateCcw } from 'lucide-react';
-import { createSession, submitOffer, getSession, healthCheck, extractPrice } from './api';
+import { createSession, sendChat, getSession, healthCheck, extractPrice } from './api';
 import './Chat.css';
 
 export default function Chat() {
@@ -84,22 +84,13 @@ export default function Chat() {
 
         const userText = inputValue.trim();
 
-        // Extract price from user input
-        const price = extractPrice(userText);
-
-        if (price === null) {
-            // No price found — show helper
-            setError('Please include a price in your message (e.g. "$70" or "I offer 65")');
-            return;
-        }
-
         // Add user message to chat
         const userMessage = {
             id: Date.now(),
             text: userText,
             sender: 'user',
             timestamp: new Date(),
-            meta: { offeredPrice: price }
+            meta: {}
         };
 
         setMessages(prev => [...prev, userMessage]);
@@ -108,22 +99,31 @@ export default function Chat() {
         setError(null);
 
         try {
-            const response = await submitOffer(sessionId, price, userText);
+            // Send as free-text chat — AI will understand intent
+            const response = await sendChat(sessionId, userText);
 
             if (response) {
-                // Build bot response
                 let botText = response.message;
-                const decision = response.pricing?.decision;
-                const counterPrice = response.pricing?.counter_offer_price;
-                const acceptedPrice = response.pricing?.accepted_price;
 
-                // Add pricing context
-                if (decision === 'counter' && counterPrice) {
-                    botText += `\n\n💰 Counter offer: $${parseFloat(counterPrice).toFixed(2)}`;
-                } else if (decision === 'accept' && acceptedPrice) {
-                    botText += `\n\n✅ Deal accepted at $${parseFloat(acceptedPrice).toFixed(2)}!`;
-                } else if (decision === 'reject') {
-                    botText += `\n\n❌ Offer rejected.`;
+                if (response.has_price_offer && response.pricing) {
+                    // AI found a price in the message and processed it
+                    const decision = response.pricing?.decision;
+                    const counterPrice = response.pricing?.counter_offer_price;
+                    const acceptedPrice = response.pricing?.accepted_price;
+
+                    if (decision === 'counter' && counterPrice) {
+                        botText += `\n\n💰 Counter offer: $${parseFloat(counterPrice).toFixed(2)}`;
+                    } else if (decision === 'accept' && acceptedPrice) {
+                        botText += `\n\n✅ Deal accepted at $${parseFloat(acceptedPrice).toFixed(2)}!`;
+                    } else if (decision === 'reject') {
+                        botText += `\n\n❌ Offer rejected.`;
+                    }
+
+                    // Update user message with extracted price
+                    if (response.extracted_price) {
+                        userMessage.meta.offeredPrice = parseFloat(response.extracted_price);
+                        setMessages(prev => prev.map(m => m.id === userMessage.id ? {...m, meta: {...m.meta, offeredPrice: parseFloat(response.extracted_price)}} : m));
+                    }
                 }
 
                 const botMessage = {
@@ -132,19 +132,20 @@ export default function Chat() {
                     sender: 'bot',
                     timestamp: new Date(),
                     meta: {
-                        decision,
-                        counterPrice,
-                        acceptedPrice,
+                        decision: response.pricing?.decision,
+                        counterPrice: response.pricing?.counter_offer_price,
+                        acceptedPrice: response.pricing?.accepted_price,
                         round: response.round_number,
                         roundsRemaining: response.rounds_remaining,
                         status: response.status,
                         margin: response.pricing?.margin_percentage,
+                        isChat: !response.has_price_offer,
                     }
                 };
                 setMessages(prev => [...prev, botMessage]);
 
                 // Check if negotiation ended
-                if (!response.can_continue) {
+                if (response.can_continue === false) {
                     setNegotiationEnded(true);
                 }
             } else {
@@ -152,7 +153,7 @@ export default function Chat() {
             }
         } catch (err) {
             console.error('Send message error:', err);
-            setError(`Failed to send offer: ${err.message}`);
+            setError(`Failed to send message: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -249,7 +250,7 @@ export default function Chat() {
                         <div className="text-center py-12">
                             <TrendingUp className="w-12 h-12 text-neo-teal/30 mx-auto mb-4" />
                             <h3 className="text-lg font-bold text-neo-navy mb-2">Start Negotiating</h3>
-                            <p className="text-neo-navy/60">Enter a price offer to begin (e.g. "I offer $70")</p>
+                            <p className="text-neo-navy/60">Say hello, ask about the product, or make a price offer!</p>
                         </div>
                     ) : (
                         messages.map((msg) => (
@@ -283,7 +284,7 @@ export default function Chat() {
                             <div className="chat-message-bot">
                                 <div className="flex items-center gap-2">
                                     <Loader2 className="w-4 h-4 animate-spin" />
-                                    <span>Evaluating offer...</span>
+                                    <span>Thinking...</span>
                                 </div>
                             </div>
                         </div>
@@ -316,7 +317,7 @@ export default function Chat() {
                                 type="text"
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
-                                placeholder='Enter your offer (e.g. "I offer $70" or just "70")...'
+                                placeholder='Type anything — "hello", "why so expensive?", "I offer $70"...'
                                 className="flex-1 px-4 py-3 border-3 border-neo-navy bg-white text-neo-navy placeholder-neo-navy/50 focus:outline-none font-body"
                                 disabled={loading || !sessionId}
                             />
