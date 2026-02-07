@@ -72,7 +72,7 @@ desktop.ini
 .vercel/
 *.tsbuildinfo
 
-# Python (if backend uses Python)
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -80,6 +80,19 @@ venv/
 .venv/
 ENV/
 env/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.tox/
+.nox/
+*.egg
+*.egg-info/
+.eggs/
+MANIFEST
 
 # Temporary files
 tmp/
