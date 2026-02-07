@@ -49,6 +49,23 @@ input[type="text"]:disabled {
     cursor: not-allowed;
 }
 
+/* Number input styling */
+input[type="number"].config-input {
+    font-family: 'Inter', sans-serif;
+    -moz-appearance: textfield;
+}
+
+input[type="number"].config-input::-webkit-outer-spin-button,
+input[type="number"].config-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"].config-input:focus {
+    outline: none;
+    border-color: #FF7D00 !important;
+}
+
 /* Button hover effects */
 .neo-button {
     font-family: 'Space Grotesk', sans-serif;

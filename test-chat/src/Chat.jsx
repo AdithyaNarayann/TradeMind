@@ -1,21 +1,29 @@
-import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle, TrendingUp, DollarSign, RotateCcw } from 'lucide-react';
-import { createSession, sendChat, getSession, healthCheck, extractPrice } from './api';
+﻿import { useState, useEffect, useRef } from 'react';
+import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield } from 'lucide-react';
+import { createSession, sendChat, healthCheck } from './api';
 import './Chat.css';
 
 export default function Chat() {
+    // Setup config
+    const [showSetup, setShowSetup] = useState(true);
+    const [config, setConfig] = useState({
+        mode: 'MAX_PROFIT',
+        maxRounds: 10,
+        basePrice: 100,
+        costPrice: 40,
+    });
+
+    // Session state
     const [sessionId, setSessionId] = useState(null);
-    const [sessionInfo, setSessionInfo] = useState(null); // initial_offer, max_rounds, mode
+    const [sessionInfo, setSessionInfo] = useState(null);
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [loading, setLoading] = useState(false);
-    const [initializing, setInitializing] = useState(true);
     const [error, setError] = useState(null);
-    const [backendHealthy, setBackendHealthy] = useState(false);
+    const [backendHealthy, setBackendHealthy] = useState(null);
     const [negotiationEnded, setNegotiationEnded] = useState(false);
     const messagesEndRef = useRef(null);
 
-    // Scroll to bottom of messages
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
@@ -24,36 +32,53 @@ export default function Chat() {
         scrollToBottom();
     }, [messages]);
 
-    // Initialize session
+    // Check backend health on mount
     useEffect(() => {
-        initSession();
+        healthCheck().then(ok => setBackendHealthy(ok));
     }, []);
 
-    async function initSession() {
-        setInitializing(true);
+    async function startNegotiation() {
+        setLoading(true);
         setError(null);
-        setMessages([]);
-        setNegotiationEnded(false);
+
+        const sessionConfig = {
+            product: {
+                product_id: "TRADE-001",
+                product_name: "Custom Product",
+                base_price: config.basePrice,
+                cost_price: config.costPrice,
+                min_acceptable_price: config.costPrice,
+                max_loss_percentage: 0
+            },
+            inventory: {
+                available_quantity: 100,
+                requested_quantity: 10,
+                inventory_pressure: "medium",
+                sales_frequency: "medium"
+            },
+            strategy: {
+                mode: config.mode,
+                urgency: "medium",
+                relationship_priority: "medium",
+                max_rounds: config.maxRounds
+            }
+        };
 
         try {
             const healthy = await healthCheck();
             setBackendHealthy(healthy);
-
             if (!healthy) {
-                setError('Backend service is not available. Please ensure the backend is running on http://127.0.0.1:8000');
-                setInitializing(false);
+                setError('Backend not available. Start the server first.');
+                setLoading(false);
                 return;
             }
 
-            // Create session with default product config
-            const sessionData = await createSession();
-
-            if (sessionData && sessionData.session_id) {
+            const sessionData = await createSession(sessionConfig);
+            if (sessionData?.session_id) {
                 setSessionId(sessionData.session_id);
                 setSessionInfo(sessionData);
-
-                // Show the initial offer as a bot message
-                const welcomeMsg = {
+                setShowSetup(false);
+                setMessages([{
                     id: Date.now(),
                     text: sessionData.message,
                     sender: 'bot',
@@ -63,28 +88,32 @@ export default function Chat() {
                         mode: sessionData.mode,
                         maxRounds: sessionData.max_rounds,
                     }
-                };
-                setMessages([welcomeMsg]);
-                setError(null);
+                }]);
             } else {
-                setError('Failed to create session — unexpected response');
+                setError('Failed to create session');
             }
         } catch (err) {
-            console.error('Initialization error:', err);
-            setError(`Failed to initialize: ${err.message}`);
+            setError("Failed to start: " + err.message);
         } finally {
-            setInitializing(false);
+            setLoading(false);
         }
+    }
+
+    function resetToSetup() {
+        setShowSetup(true);
+        setSessionId(null);
+        setSessionInfo(null);
+        setMessages([]);
+        setNegotiationEnded(false);
+        setError(null);
+        setInputValue('');
     }
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
-
         if (!inputValue.trim() || !sessionId || loading || negotiationEnded) return;
 
         const userText = inputValue.trim();
-
-        // Add user message to chat
         const userMessage = {
             id: Date.now(),
             text: userText,
@@ -99,30 +128,29 @@ export default function Chat() {
         setError(null);
 
         try {
-            // Send as free-text chat — AI will understand intent
             const response = await sendChat(sessionId, userText);
-
             if (response) {
                 let botText = response.message;
 
                 if (response.has_price_offer && response.pricing) {
-                    // AI found a price in the message and processed it
                     const decision = response.pricing?.decision;
                     const counterPrice = response.pricing?.counter_offer_price;
                     const acceptedPrice = response.pricing?.accepted_price;
 
                     if (decision === 'counter' && counterPrice) {
-                        botText += `\n\n💰 Counter offer: $${parseFloat(counterPrice).toFixed(2)}`;
+                        botText += "\n\n\u{1F4B0} Counter offer: $" + parseFloat(counterPrice).toFixed(2);
                     } else if (decision === 'accept' && acceptedPrice) {
-                        botText += `\n\n✅ Deal accepted at $${parseFloat(acceptedPrice).toFixed(2)}!`;
+                        botText += "\n\n\u2705 Deal accepted at $" + parseFloat(acceptedPrice).toFixed(2) + "!";
                     } else if (decision === 'reject') {
-                        botText += `\n\n❌ Offer rejected.`;
+                        botText += "\n\n\u274C Offer rejected.";
                     }
 
-                    // Update user message with extracted price
                     if (response.extracted_price) {
-                        userMessage.meta.offeredPrice = parseFloat(response.extracted_price);
-                        setMessages(prev => prev.map(m => m.id === userMessage.id ? { ...m, meta: { ...m.meta, offeredPrice: parseFloat(response.extracted_price) } } : m));
+                        setMessages(prev => prev.map(m =>
+                            m.id === userMessage.id
+                                ? { ...m, meta: { ...m.meta, offeredPrice: parseFloat(response.extracted_price) } }
+                                : m
+                        ));
                     }
                 }
 
@@ -144,7 +172,6 @@ export default function Chat() {
                 };
                 setMessages(prev => [...prev, botMessage]);
 
-                // Check if negotiation ended
                 if (response.can_continue === false) {
                     setNegotiationEnded(true);
                 }
@@ -153,52 +180,142 @@ export default function Chat() {
             }
         } catch (err) {
             console.error('Send message error:', err);
-            setError(`Failed to send message: ${err.message}`);
+            setError("Failed to send: " + err.message);
         } finally {
             setLoading(false);
         }
     };
 
-    if (initializing) {
+    //  SETUP SCREEN 
+    if (showSetup) {
         return (
-            <div className="min-h-screen bg-neo-cream flex items-center justify-center">
-                <div className="neo-card p-8 text-center">
-                    <Loader2 className="w-10 h-10 animate-spin text-neo-teal mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-neo-navy mb-2">Initializing Trade Mind Chat</h2>
-                    <p className="text-neo-navy/70">Creating negotiation session...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (!backendHealthy) {
-        return (
-            <div className="min-h-screen bg-neo-cream flex items-center justify-center">
-                <div className="neo-card p-8 text-center max-w-md">
-                    <AlertCircle className="w-12 h-12 text-neo-maroon mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-neo-navy mb-2">Backend Service Unavailable</h2>
-                    <p className="text-neo-navy/70 mb-4">
-                        {error || 'The backend service is not running.'}
-                    </p>
-                    <div className="text-left bg-neo-navy/10 p-4 border-l-4 border-neo-orange mb-4">
-                        <p className="text-sm font-mono text-neo-navy">
-                            <code className="bg-neo-navy text-neo-cream px-2 py-1">cd backend && python -m uvicorn src.app:app --reload</code>
-                        </p>
+            <div className="min-h-screen bg-neo-cream flex items-center justify-center p-4">
+                <div className="w-full max-w-lg">
+                    <div className="flex items-center justify-center gap-3 mb-8">
+                        <div className="w-12 h-12 bg-neo-orange flex items-center justify-center border-4 border-neo-navy">
+                            <TrendingUp className="w-7 h-7 text-neo-navy" />
+                        </div>
+                        <h1 className="text-3xl font-bold font-heading text-neo-navy">Trade Mind</h1>
                     </div>
-                    <button
-                        onClick={initSession}
-                        className="neo-button bg-neo-orange text-neo-navy px-6 py-3 font-bold flex items-center gap-2 mx-auto"
-                    >
-                        <RotateCcw className="w-4 h-4" /> Retry
-                    </button>
+
+                    <div className="neo-card p-6 space-y-6">
+                        <h2 className="text-xl font-bold text-neo-navy text-center font-heading">Configure Negotiation</h2>
+
+                        {/* Mode Toggle */}
+                        <div>
+                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Strategy Mode</label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => setConfig({ ...config, mode: 'MAX_PROFIT' })}
+                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MAX_PROFIT' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                >
+                                    <Zap className="w-4 h-4" />
+                                    MAX PROFIT
+                                </button>
+                                <button
+                                    onClick={() => setConfig({ ...config, mode: 'MIN_LOSS' })}
+                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MIN_LOSS' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                >
+                                    <Shield className="w-4 h-4" />
+                                    MIN LOSS
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Max Rounds */}
+                        <div>
+                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Max Rounds</label>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setConfig({ ...config, maxRounds: Math.max(1, config.maxRounds - 1) })}
+                                    className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                >
+                                    <Minus className="w-4 h-4" />
+                                </button>
+                                <div className="flex-1 px-4 py-2.5 border-3 border-neo-navy bg-neo-teal text-neo-cream text-center font-bold text-xl shadow-neo">
+                                    {config.maxRounds}
+                                </div>
+                                <button
+                                    onClick={() => setConfig({ ...config, maxRounds: Math.min(20, config.maxRounds + 1) })}
+                                    className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Base Price */}
+                        <div>
+                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Base Price (Selling Price)</label>
+                            <div className="flex items-center border-3 border-neo-navy overflow-hidden">
+                                <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
+                                <input
+                                    type="number"
+                                    value={config.basePrice}
+                                    onChange={(e) => setConfig({ ...config, basePrice: parseFloat(e.target.value) || 0 })}
+                                    className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
+                                    min="1"
+                                    step="1"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Cost Price */}
+                        <div>
+                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Actual Cost Price</label>
+                            <div className="flex items-center border-3 border-neo-navy overflow-hidden">
+                                <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
+                                <input
+                                    type="number"
+                                    value={config.costPrice}
+                                    onChange={(e) => setConfig({ ...config, costPrice: parseFloat(e.target.value) || 0 })}
+                                    className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
+                                    min="1"
+                                    step="1"
+                                />
+                            </div>
+                        </div>
+
+                        {config.costPrice >= config.basePrice && (
+                            <p className="text-neo-maroon text-sm font-bold flex items-center gap-1">
+                                <AlertCircle className="w-4 h-4" /> Cost price must be less than base price
+                            </p>
+                        )}
+
+                        {backendHealthy === false && (
+                            <div className="bg-neo-maroon/10 border-2 border-neo-maroon p-3 text-sm text-neo-maroon font-bold flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                Backend not available. Start the server first.
+                            </div>
+                        )}
+                        {backendHealthy === null && (
+                            <div className="flex items-center gap-2 text-neo-navy/50 text-sm">
+                                <Loader2 className="w-4 h-4 animate-spin" /> Checking backend...
+                            </div>
+                        )}
+
+                        <button
+                            onClick={startNegotiation}
+                            disabled={loading || backendHealthy !== true || config.costPrice >= config.basePrice || config.basePrice <= 0 || config.costPrice <= 0}
+                            className={"w-full py-4 border-3 border-neo-navy font-bold text-lg flex items-center justify-center gap-2 transition-all " + (loading || backendHealthy !== true || config.costPrice >= config.basePrice ? 'bg-neo-navy/20 text-neo-navy/40 cursor-not-allowed' : 'bg-neo-orange text-neo-navy shadow-neo hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]')}
+                        >
+                            {loading ? (
+                                <><Loader2 className="w-5 h-5 animate-spin" /> Creating Session...</>
+                            ) : (
+                                <><TrendingUp className="w-5 h-5" /> Start Negotiation</>
+                            )}
+                        </button>
+
+                        {error && <p className="text-neo-maroon text-sm text-center font-bold">{error}</p>}
+                    </div>
                 </div>
             </div>
         );
     }
 
+    //  CHAT SCREEN 
     return (
         <div className="min-h-screen bg-neo-cream flex flex-col">
-            {/* Header */}
             <header className="bg-neo-navy text-neo-cream border-b-4 border-neo-navy p-4">
                 <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -206,24 +323,27 @@ export default function Chat() {
                             <TrendingUp className="w-6 h-6 text-neo-navy" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold font-heading">Trade Mind Chat</h1>
+                            <h1 className="text-2xl font-bold font-heading">Trade Mind</h1>
                             <p className="text-sm text-neo-cream/70">AI Negotiation Engine</p>
                         </div>
                     </div>
-                    {sessionInfo && (
-                        <div className="hidden sm:flex items-center gap-4 text-sm">
-                            <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold">
-                                {sessionInfo.mode === 'max_profit' ? 'MAX PROFIT' : 'MIN LOSS'}
-                            </span>
-                            <span className="text-neo-cream/70">
-                                Max {sessionInfo.max_rounds} rounds
-                            </span>
-                        </div>
-                    )}
+                    <div className="hidden sm:flex flex-wrap items-center gap-2">
+                        <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
+                            {config.mode === 'MAX_PROFIT' ? 'MAX PROFIT' : 'MIN LOSS'}
+                        </span>
+                        <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
+                            {config.maxRounds} Rounds
+                        </span>
+                        <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
+                            Base ${config.basePrice}
+                        </span>
+                        <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
+                            Cost ${config.costPrice}
+                        </span>
+                    </div>
                 </div>
             </header>
 
-            {/* Error Banner */}
             {error && (
                 <div className="bg-neo-maroon text-neo-cream border-b-2 border-neo-navy p-3">
                     <div className="max-w-4xl mx-auto flex items-center gap-2 text-sm">
@@ -234,16 +354,6 @@ export default function Chat() {
                 </div>
             )}
 
-            {/* Session Bar */}
-            <div className="bg-neo-teal text-neo-cream p-2 text-center text-xs sm:text-sm flex items-center justify-center gap-2">
-                <DollarSign className="w-4 h-4" />
-                Session: <code className="bg-neo-navy px-2 py-0.5 font-mono text-xs">{sessionId ? sessionId.slice(0, 8) + '...' : '—'}</code>
-                {sessionInfo && (
-                    <span className="ml-2">| Base price: <strong>${parseFloat(sessionInfo.initial_offer).toFixed(2)}</strong></span>
-                )}
-            </div>
-
-            {/* Messages Container */}
             <div className="flex-1 overflow-y-auto p-4 max-w-4xl mx-auto w-full">
                 <div className="space-y-4">
                     {messages.length === 0 ? (
@@ -256,9 +366,9 @@ export default function Chat() {
                         messages.map((msg) => (
                             <div
                                 key={msg.id}
-                                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                                className={"flex " + (msg.sender === 'user' ? 'justify-end' : 'justify-start')}
                             >
-                                <div className={`chat-message-${msg.sender} flex flex-col`}>
+                                <div className={"chat-message-" + msg.sender + " flex flex-col"}>
                                     <p className="text-sm whitespace-pre-line">{msg.text}</p>
                                     <div className="flex items-center justify-between mt-1 gap-3">
                                         <span className="text-xs opacity-70">
@@ -266,7 +376,7 @@ export default function Chat() {
                                         </span>
                                         {msg.meta?.round && (
                                             <span className="text-xs opacity-70">
-                                                Round {msg.meta.round} • {msg.meta.roundsRemaining} left
+                                                Round {msg.meta.round} \u2022 {msg.meta.roundsRemaining} left
                                             </span>
                                         )}
                                         {msg.meta?.offeredPrice && (
@@ -293,13 +403,12 @@ export default function Chat() {
                 </div>
             </div>
 
-            {/* Negotiation Ended Banner */}
             {negotiationEnded && (
                 <div className="bg-neo-navy text-neo-cream p-4 border-t-4 border-neo-orange">
                     <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
                         <p className="font-bold font-heading">Negotiation Complete</p>
                         <button
-                            onClick={initSession}
+                            onClick={resetToSetup}
                             className="neo-button bg-neo-orange text-neo-navy px-5 py-2 font-bold flex items-center gap-2 text-sm"
                         >
                             <RotateCcw className="w-4 h-4" /> New Negotiation
@@ -308,7 +417,6 @@ export default function Chat() {
                 </div>
             )}
 
-            {/* Input Form */}
             {!negotiationEnded && (
                 <footer className="bg-neo-cream border-t-4 border-neo-navy p-4">
                     <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
@@ -317,17 +425,14 @@ export default function Chat() {
                                 type="text"
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
-                                placeholder='Type anything — "hello", "why so expensive?", "I offer $70"...'
+                                placeholder='Type anything \u2014 "hello", "why so expensive?", "I offer $70"...'
                                 className="flex-1 px-4 py-3 border-3 border-neo-navy bg-white text-neo-navy placeholder-neo-navy/50 focus:outline-none font-body"
                                 disabled={loading || !sessionId}
                             />
                             <button
                                 type="submit"
                                 disabled={loading || !sessionId || !inputValue.trim()}
-                                className={`neo-button px-6 py-3 font-bold flex items-center gap-2 ${loading || !sessionId || !inputValue.trim()
-                                    ? 'bg-neo-navy/30 opacity-50 cursor-not-allowed'
-                                    : 'bg-neo-orange text-neo-navy hover:bg-neo-orange/90'
-                                    }`}
+                                className={"neo-button px-6 py-3 font-bold flex items-center gap-2 " + (loading || !sessionId || !inputValue.trim() ? 'bg-neo-navy/30 opacity-50 cursor-not-allowed' : 'bg-neo-orange text-neo-navy hover:bg-neo-orange/90')}
                             >
                                 <Send className="w-5 h-5" />
                                 Send

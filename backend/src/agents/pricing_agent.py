@@ -4,10 +4,11 @@ Pricing Strategy Agent — AI-Powered
 Purpose: Make pricing decisions using LLM intelligence + hard safety guardrails.
 
 CORE RULES (enforced as guardrails, AI cannot override):
-1. If buyer offers >= min_acceptable_price → ACCEPT (seller set this as their floor)
+1. Accept only if buyer's offer is within ±$3 of our current counter (rounds 1-4)
+   After round 5, threshold widens progressively (+$5/round) — never below cost_price
 2. Counter price must NEVER go UP from our previous counter
 3. Counter price must NEVER go below min_acceptable_price
-4. If buyer offers < min_acceptable_price → COUNTER or REJECT (never accept)
+4. If buyer offers far below our counter → COUNTER or REJECT (never accept)
 5. Financial metrics (margin, profit) are always computed deterministically
 
 Architecture:
@@ -102,10 +103,25 @@ class PricingStrategyAgent:
         offered = buyer_offer.offered_price
         quantity = buyer_offer.offered_quantity or inventory.requested_quantity
 
-        # ─── RULE 1: Accept if buyer meets or exceeds min_acceptable ─────
-        if offered >= product.min_acceptable_price:
-            logger.info("auto_accept_above_min", offered=str(offered),
-                        min_price=str(product.min_acceptable_price))
+        # ─── DYNAMIC ACCEPTANCE: proximity to our current counter ────────
+        # Rounds 1-4: accept only if buyer is within $3 of our counter
+        # Rounds 5+:  threshold widens progressively (buyer wore us down)
+        round_num = state.current_round
+        if round_num <= 4:
+            acceptance_threshold = Decimal("3")
+        else:
+            # Widens by $5 per round after round 4
+            acceptance_threshold = Decimal("3") + Decimal(str(round_num - 4)) * Decimal("5")
+
+        # Accept if buyer's offer is close enough to our counter AND above cost
+        if offered >= (state.current_offer - acceptance_threshold) and offered >= product.cost_price:
+            logger.info(
+                "proximity_accept",
+                offered=str(offered),
+                our_counter=str(state.current_offer),
+                threshold=str(acceptance_threshold),
+                round=round_num,
+            )
             return self._build_decision(
                 decision=OfferDecision.ACCEPT,
                 counter_price=None,
@@ -245,9 +261,9 @@ class PricingStrategyAgent:
             else:
                 decision = OfferDecision.COUNTER   # default to counter
 
-            # NOTE: We already handled accept in evaluate_offer() above.
-            # If AI says "accept" for an offer below min_acceptable,
-            # override to COUNTER — we never accept below the floor.
+            # NOTE: Acceptance is handled by proximity check in evaluate_offer().
+            # If AI says "accept" here, override to COUNTER — only the
+            # proximity threshold decides acceptance.
             if decision_str == "accept":
                 decision = OfferDecision.COUNTER
                 counter_price_raw = counter_price_raw or str(state.current_offer)
