@@ -15,6 +15,7 @@ import JuryDashboard from './pages/JuryDashboard';
 import ReputationPage from './pages/ReputationPage';
 import ProductCatalog from './pages/ProductCatalog';
 import ApiAccess from './pages/ApiAccess';
+import EmailSettings from './pages/EmailSettings';
 import Chat from './test-chat/src/Chat';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -59,6 +60,9 @@ function App() {
 
             {/* API Access (requires login) */}
             <Route path="/api-access" element={<ProtectedRoute><ApiAccess /></ProtectedRoute>} />
+
+            {/* Email Settings (requires login) */}
+            <Route path="/email-settings" element={<ProtectedRoute><EmailSettings /></ProtectedRoute>} />
 
             {/* Chat / Negotiation Demo */}
             <Route path="/chat" element={<Chat />} />

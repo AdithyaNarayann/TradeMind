@@ -27,6 +27,7 @@ from .api.auth_routes import router as auth_router
 from .api.product_routes import router as product_router
 from .api.chat_session_routes import router as chat_session_router
 from .api.apikey_routes import router as apikey_router
+from .api.email_routes import router as email_router
 from .db.mysql import close_pool as close_mysql_pool
 
 # Import competitive intelligence router from buisness anlytics module
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router)
     app.include_router(competitive_router)
     app.include_router(apikey_router)
+    app.include_router(email_router)
     
     # Root endpoint
     @app.get("/", tags=["Root"])

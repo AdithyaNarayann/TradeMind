@@ -298,3 +298,50 @@ export async function exportSession(sessionId) {
   return response.json();
 }
 
+// ============================================================
+// Email Settings API
+// ============================================================
+
+export async function getEmailSettings() {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/email/settings`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error('Failed to fetch email settings');
+  return response.json();
+}
+
+export async function updateEmailSettings(settings) {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/email/settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update email settings' }));
+    throw new Error(err.detail || 'Failed to update email settings');
+  }
+  return response.json();
+}
+
+export async function sendTestEmail(toEmail = null) {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/email/test`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ to_email: toEmail }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to send test email' }));
+    throw new Error(err.detail || 'Failed to send test email');
+  }
+  return response.json();
+}
+

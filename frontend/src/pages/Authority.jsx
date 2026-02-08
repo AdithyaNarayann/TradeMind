@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BarChart3, RefreshCw, CheckCircle, XCircle,
@@ -89,6 +89,73 @@ export default function Authority() {
       .then(() => setBackendHealthy(true))
       .catch(() => setBackendHealthy(false));
   }, []);
+
+  // ─── Opportunity Score (Meta Ads style — updates on every keystroke) ──
+  const opportunityScore = useMemo(() => {
+    const cost = parseFloat(product.cost_price) || 0;
+    const selling = parseFloat(product.selling_price) || 0;
+    const stock = parseFloat(product.initial_stock) || 1;
+    const platformFee = parseFloat(product.platform_fee_percent) || 0;
+    const shipping = parseFloat(product.shipping_cost) || 0;
+    const marketing = parseFloat(product.marketing_cost) || 0;
+    const minPrice = parseFloat(product.min_acceptable_price) || cost;
+    const maxLoss = parseFloat(product.max_loss_percent) || 0;
+
+    if (cost <= 0 || selling <= 0) {
+      return { total: 0, breakdown: {}, ready: false, margin: '0', roi: '0' };
+    }
+
+    // 1. Profit Margin Score (0-25)
+    const margin = ((selling - cost) / selling) * 100;
+    const marginScore = margin >= 50 ? 25 : margin >= 30 ? 20 : margin >= 15 ? 15 : margin >= 5 ? 10 : margin > 0 ? 5 : 0;
+
+    // 2. ROI Score (0-25)
+    const platformFeeTotal = selling * stock * (platformFee / 100);
+    const totalInvestment = (cost * stock) + (shipping * stock) + marketing + platformFeeTotal;
+    const revenue = selling * stock;
+    const netProfit = revenue - totalInvestment;
+    const roi = totalInvestment > 0 ? (netProfit / totalInvestment) * 100 : 0;
+    const roiScore = roi >= 100 ? 25 : roi >= 50 ? 20 : roi >= 25 ? 15 : roi >= 10 ? 10 : roi > 0 ? 5 : 0;
+
+    // 3. Cost Efficiency (0-20)
+    const overheadPerUnit = (platformFeeTotal / stock) + shipping + (marketing / stock);
+    const overheadRatio = selling > 0 ? (overheadPerUnit / selling) * 100 : 100;
+    const efficiencyScore = overheadRatio <= 10 ? 20 : overheadRatio <= 20 ? 16 : overheadRatio <= 35 ? 12 : overheadRatio <= 50 ? 8 : 4;
+
+    // 4. Price Flexibility (0-15)
+    const flexRange = selling - minPrice;
+    const flexPercent = selling > 0 ? (flexRange / selling) * 100 : 0;
+    const flexScore = flexPercent >= 30 ? 15 : flexPercent >= 20 ? 12 : flexPercent >= 10 ? 9 : flexPercent > 0 ? 5 : 2;
+
+    // 5. Risk Assessment (0-15)
+    const riskScore = maxLoss <= 0 ? 15 : maxLoss <= 5 ? 12 : maxLoss <= 10 ? 9 : maxLoss <= 20 ? 6 : 3;
+
+    // Competitive market bonus (0-5) — only when AI analysis is available
+    let compBonus = 0;
+    if (competitiveData?.my_position) {
+      const pva = competitiveData.my_position.price_vs_market_avg_percent;
+      compBonus = pva <= -10 ? 5 : pva <= 0 ? 3 : pva <= 10 ? 1 : 0;
+    }
+
+    const total = Math.min(marginScore + roiScore + efficiencyScore + flexScore + riskScore + compBonus, 100);
+
+    return {
+      total,
+      ready: true,
+      margin: margin.toFixed(1),
+      roi: roi.toFixed(1),
+      breakdown: {
+        margin:     { score: marginScore,     max: 25, label: 'Profit Margin' },
+        roi:        { score: roiScore,        max: 25, label: 'Return on Investment' },
+        efficiency: { score: efficiencyScore, max: 20, label: 'Cost Efficiency' },
+        flexibility:{ score: flexScore,       max: 15, label: 'Price Flexibility' },
+        risk:       { score: riskScore,       max: 15, label: 'Risk Control' },
+        ...(competitiveData?.my_position
+          ? { market: { score: compBonus, max: 5, label: 'Market Position' } }
+          : {}),
+      },
+    };
+  }, [product, competitiveData]);
 
   // ─── Handlers ─────────────────────────────────────────────────
   const handleProductChange = (field, value) => {
@@ -319,7 +386,7 @@ export default function Authority() {
             <NeoCard className="p-2 sm:p-4">
               <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
                 <Search className="w-4 h-4 text-neo-orange" />
-                Product Info
+                Product & Strategy
               </h3>
               <div className="space-y-2 sm:space-y-3">
                 <InputField
@@ -362,6 +429,44 @@ export default function Authority() {
                     <option value="Software">Software</option>
                     <option value="Health">Health</option>
                   </select>
+                </div>
+
+                {/* Strategy Settings (merged from Negotiation Settings) */}
+                <div className="pt-2 mt-2 border-t-[2px] border-neo-navy/10">
+                  <p className="text-[10px] font-bold text-neo-navy/40 uppercase mb-2 flex items-center gap-1">
+                    <Settings className="w-3 h-3" />
+                    Strategy
+                  </p>
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        Strategy Mode
+                      </label>
+                      <select
+                        value={product.mode}
+                        onChange={e => handleProductChange('mode', e.target.value)}
+                        className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
+                      >
+                        <option value="MAX_PROFIT">MAX PROFIT</option>
+                        <option value="MIN_LOSS">MIN LOSS</option>
+                      </select>
+                    </div>
+                    <InputField
+                      label="Max Rounds"
+                      value={product.max_rounds}
+                      onChange={v => handleProductChange('max_rounds', v)}
+                      icon={Activity}
+                      placeholder="10"
+                    />
+                    <InputField
+                      label="Max Loss %"
+                      value={product.max_loss_percent}
+                      onChange={v => handleProductChange('max_loss_percent', v)}
+                      icon={Percent}
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
             </NeoCard>
@@ -425,42 +530,142 @@ export default function Authority() {
               </div>
             </NeoCard>
 
-            {/* Negotiation Settings */}
+            {/* ─── Opportunity Score (Meta Ads style) ──────────── */}
             <NeoCard className="p-2 sm:p-4">
               <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
-                <Settings className="w-4 h-4 text-neo-teal" />
-                Negotiation Settings
+                <Target className="w-4 h-4 text-neo-orange" />
+                Opportunity Score
               </h3>
-              <div className="space-y-2 sm:space-y-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] sm:text-xs font-bold text-neo-navy/60 uppercase flex items-center gap-1">
-                    <Zap className="w-3 h-3" />
-                    Strategy Mode
-                  </label>
-                  <select
-                    value={product.mode}
-                    onChange={e => handleProductChange('mode', e.target.value)}
-                    className="w-full px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-neo-cream border-[2px] border-neo-navy font-mono text-neo-navy focus:outline-none focus:border-neo-orange transition-colors"
-                  >
-                    <option value="MAX_PROFIT">MAX PROFIT</option>
-                    <option value="MIN_LOSS">MIN LOSS</option>
-                  </select>
+
+              {!opportunityScore.ready ? (
+                <div className="flex items-center justify-center py-8 sm:py-12 text-neo-navy/30">
+                  <div className="text-center">
+                    <Target className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-[10px] sm:text-xs">Enter cost & selling price</p>
+                    <p className="text-[9px] text-neo-navy/20 mt-0.5">Score updates in real-time</p>
+                  </div>
                 </div>
-                <InputField
-                  label="Max Negotiation Rounds"
-                  value={product.max_rounds}
-                  onChange={v => handleProductChange('max_rounds', v)}
-                  icon={Activity}
-                  placeholder="10"
-                />
-                <InputField
-                  label="Max Loss %"
-                  value={product.max_loss_percent}
-                  onChange={v => handleProductChange('max_loss_percent', v)}
-                  icon={Percent}
-                  placeholder="0"
-                />
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* SVG Semi-Circle Gauge */}
+                  <div className="flex justify-center">
+                    <div className="relative">
+                      <svg viewBox="0 0 200 115" className="w-[160px] sm:w-[180px]">
+                        {/* Background arc */}
+                        <path
+                          d="M 20 100 A 80 80 0 0 1 180 100"
+                          fill="none"
+                          stroke="#1a1a2e15"
+                          strokeWidth="14"
+                          strokeLinecap="round"
+                        />
+                        {/* Colored score arc */}
+                        <path
+                          d="M 20 100 A 80 80 0 0 1 180 100"
+                          fill="none"
+                          stroke={
+                            opportunityScore.total > 75 ? '#2dd4a8'
+                            : opportunityScore.total > 50 ? '#84cc16'
+                            : opportunityScore.total > 25 ? '#f5a623'
+                            : '#e74c5e'
+                          }
+                          strokeWidth="14"
+                          strokeLinecap="round"
+                          strokeDasharray={`${(opportunityScore.total / 100) * 251.3} 251.3`}
+                          style={{ transition: 'stroke-dasharray 0.6s ease, stroke 0.4s ease' }}
+                        />
+                        {/* Score number */}
+                        <text
+                          x="100" y="78"
+                          textAnchor="middle"
+                          fill={
+                            opportunityScore.total > 75 ? '#2dd4a8'
+                            : opportunityScore.total > 50 ? '#84cc16'
+                            : opportunityScore.total > 25 ? '#f5a623'
+                            : '#e74c5e'
+                          }
+                          style={{ fontSize: '38px', fontWeight: 900, fontFamily: 'Space Grotesk, sans-serif' }}
+                        >
+                          {opportunityScore.total}
+                        </text>
+                        <text
+                          x="100" y="97"
+                          textAnchor="middle"
+                          fill="#1a1a2e60"
+                          style={{ fontSize: '11px', fontWeight: 700 }}
+                        >
+                          / 100
+                        </text>
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Score Label Badge */}
+                  <div className="text-center">
+                    <span className={`inline-block text-[10px] sm:text-xs font-black uppercase px-3 py-1 border-[2px] ${
+                      opportunityScore.total > 75
+                        ? 'bg-neo-teal/10 border-neo-teal text-neo-teal'
+                        : opportunityScore.total > 50
+                        ? 'bg-lime-100 border-lime-600 text-lime-700'
+                        : opportunityScore.total > 25
+                        ? 'bg-neo-orange/10 border-neo-orange text-neo-orange'
+                        : 'bg-neo-maroon/10 border-neo-maroon text-neo-maroon'
+                    }`}>
+                      {opportunityScore.total > 80 ? 'Excellent'
+                        : opportunityScore.total > 60 ? 'Good'
+                        : opportunityScore.total > 40 ? 'Average'
+                        : opportunityScore.total > 20 ? 'Below Avg'
+                        : 'Poor'}
+                    </span>
+                  </div>
+
+                  {/* Breakdown Bars */}
+                  <div className="space-y-1.5 pt-1">
+                    {Object.entries(opportunityScore.breakdown).map(([key, item]) => {
+                      const pct = item.max > 0 ? (item.score / item.max) * 100 : 0;
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] mb-0.5">
+                            <span className="font-bold text-neo-navy/60 truncate">{item.label}</span>
+                            <span className="font-mono text-neo-navy/40 ml-1 flex-shrink-0">
+                              {item.score}/{item.max}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-neo-navy/5 border border-neo-navy/10">
+                            <div
+                              className="h-full"
+                              style={{
+                                width: `${pct}%`,
+                                backgroundColor: pct >= 70 ? '#2dd4a8' : pct >= 40 ? '#f5a623' : '#e74c5e',
+                                transition: 'width 0.5s ease, background-color 0.4s ease',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Key Metrics Inline */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <div className="p-1.5 bg-neo-navy text-center">
+                      <p className="text-[8px] text-neo-cream/50 uppercase">Margin</p>
+                      <p className="text-xs font-bold text-neo-cream">{opportunityScore.margin}%</p>
+                    </div>
+                    <div className="p-1.5 bg-neo-navy text-center">
+                      <p className="text-[8px] text-neo-cream/50 uppercase">ROI</p>
+                      <p className="text-xs font-bold text-neo-cream">{opportunityScore.roi}%</p>
+                    </div>
+                  </div>
+
+                  {competitiveData && (
+                    <div className="text-[9px] text-neo-navy/40 text-center flex items-center justify-center gap-1 pt-0.5">
+                      <Sparkles className="w-3 h-3" />
+                      Market intelligence factored in
+                    </div>
+                  )}
+                </div>
+              )}
             </NeoCard>
           </div>
 
