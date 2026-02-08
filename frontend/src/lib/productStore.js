@@ -10,7 +10,7 @@
  *     stats: { totalSessions, acceptedDeals, avgMargin, revenue } }
  */
 
-const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8000';
+const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || 'https://hfcfq8qw-8000.inc1.devtunnels.ms';
 const STORAGE_KEY = 'trademind_products';
 
 // ── Auth helper ──────────────────────────────────────────────────────────

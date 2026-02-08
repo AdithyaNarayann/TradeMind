@@ -9,7 +9,7 @@ import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
 import { getAuthToken } from '../lib/api';
 
-const AUTH_API = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8000';
+const AUTH_API = import.meta.env.VITE_AUTH_API_URL || 'https://hfcfq8qw-8000.inc1.devtunnels.ms';
 
 // ── API helpers ────────────────────────────────────────────────────
 async function fetchKeys() {
@@ -46,7 +46,7 @@ const LANGS = ['Python', 'JavaScript', 'TypeScript'];
 
 function getSnippet(lang, apiKey) {
     const key = apiKey || 'tm_YOUR_API_KEY_HERE';
-    const base = 'http://localhost:8000';
+    const base = 'https://hfcfq8qw-8000.inc1.devtunnels.ms';
 
     if (lang === 'Python') {
         return `import requests
