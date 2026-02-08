@@ -1,5 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL || 'https://hfcfq8qw-8000.inc1.devtunnels.ms';
-const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || 'https://hfcfq8qw-8000.inc1.devtunnels.ms';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8000';
 
 // ============================================================
 // Auth API
@@ -201,7 +201,7 @@ export async function getReputationData(walletAddress) {
 // Business Analytics API
 // ============================================================
 
-const ANALYTICS_API_URL = import.meta.env.VITE_ANALYTICS_API_URL || 'https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1';
+const ANALYTICS_API_URL = import.meta.env.VITE_ANALYTICS_API_URL || 'http://localhost:8000/api/v1';
 
 export async function calculateAnalytics(data) {
   const response = await fetch(`${ANALYTICS_API_URL}/analytics/calculate`, {

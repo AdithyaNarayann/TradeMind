@@ -458,7 +458,7 @@ export default function WalletDashboard() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
               <div className="flex items-center gap-2 px-4 py-2 bg-neo-navy border-[2px] border-neo-cream/20 font-mono text-neo-cream/80 text-sm">
                 <Terminal className="w-4 h-4 text-neo-orange" />
-                Base URL: <span className="text-neo-orange">https://hfcfq8qw-8000.inc1.devtunnels.ms</span>
+                Base URL: <span className="text-neo-orange">http://localhost:8000</span>
               </div>
               <div className="flex items-center gap-2 px-3 py-2 bg-neo-teal/20 border-[2px] border-neo-teal/40 text-neo-teal text-xs font-bold uppercase">
                 <Shield className="w-4 h-4" />
@@ -745,7 +745,7 @@ export default function WalletDashboard() {
                     <CodeBlock
                       title="cURL"
                       language="bash"
-                      code={`curl -X POST https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1/negotiate/sessions \\
+                      code={`curl -X POST http://localhost:8000/api/v1/negotiate/sessions \\
   -H "Content-Type: application/json" \\
   -d '{
     "product_name": "Wireless Earbuds Pro",
@@ -769,7 +769,7 @@ export default function WalletDashboard() {
                     <CodeBlock
                       title="cURL"
                       language="bash"
-                      code={`curl -X POST https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1/negotiate/sessions/{SESSION_ID}/chat \\
+                      code={`curl -X POST http://localhost:8000/api/v1/negotiate/sessions/{SESSION_ID}/chat \\
   -H "Content-Type: application/json" \\
   -d '{ "message": "Can you do 2200?", "role": "buyer" }'`}
                     />
@@ -787,7 +787,7 @@ export default function WalletDashboard() {
                     <CodeBlock
                       title="cURL"
                       language="bash"
-                      code={`curl -X POST https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1/analytics/calculate \\
+                      code={`curl -X POST http://localhost:8000/api/v1/analytics/calculate \\
   -H "Content-Type: application/json" \\
   -d '{
     "product": {

@@ -111,7 +111,6 @@ def create_app() -> FastAPI:
             "http://localhost:5173",
             "http://localhost:3000",
             "https://frontend-5q5ja9p12-sjsreeharis-projects.vercel.app",
-            "https://hfcfq8qw-8000.inc1.devtunnels.ms",
             "*",
         ],
         allow_credentials=True,
