@@ -150,6 +150,7 @@ export default function Navbar() {
                           <Link
                             key={item.path}
                             to={item.path}
+                            onClick={() => setUserMenuOpen(false)}
                             className={`
                               flex items-center gap-2.5 px-3 py-2 text-xs font-bold uppercase tracking-wide
                               transition-all duration-100
