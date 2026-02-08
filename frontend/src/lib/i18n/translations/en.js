@@ -82,11 +82,11 @@ const en = {
             threeRolesOneMission: 'Intelligent Negotiation Infrastructure',
             enterDashboard: 'Learn More',
             reporter: {
-                title: 'MAX_PROFIT Mode',
+                title: 'Max Profit Mode',
                 description: 'Conservative concessions. Walks away if margins are threatened. Designed for healthy demand.',
             },
             authority: {
-                title: 'MIN_LOSS Mode',
+                title: 'Min Loss Mode',
                 description: 'Controlled flexibility. Targets break-even first. Designed for clearance or slow-moving inventory.',
             },
             jury: {
