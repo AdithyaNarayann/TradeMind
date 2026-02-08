@@ -1,5 +1,5 @@
-const API_BASE = 'http://127.0.0.1:8000/api/v1/negotiate';
-const CHAT_DB_BASE = 'http://127.0.0.1:8000/api/v1/chat-sessions';
+const API_BASE = 'https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1/negotiate';
+const CHAT_DB_BASE = 'https://hfcfq8qw-8000.inc1.devtunnels.ms/api/v1/chat-sessions';
 
 function _token() {
     return localStorage.getItem('trademind_token');

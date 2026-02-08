@@ -42,8 +42,6 @@ class OpenRouterClient:
     All pricing decisions are made by the deterministic pricing agent.
     """
     
-    const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    
     def __init__(self):
         settings = get_settings()
         self.api_key = settings.openrouter_api_key
