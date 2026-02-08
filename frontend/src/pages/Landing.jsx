@@ -100,7 +100,7 @@ export default function Landing() {
 
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row gap-4">
-                <Link to="/reporter">
+                <Link to="/api-access">
                   <NeoButton variant="orange" size="lg">
                     <DollarSign className="w-5 h-5 mr-2" />
                     {t('landing.startReporting')}
@@ -329,7 +329,7 @@ export default function Landing() {
             {t('landing.cta.safetyPriority')}
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/reporter">
+            <Link to="/api-access">
               <NeoButton variant="navy" size="lg">
                 <DollarSign className="w-5 h-5 mr-2" />
                 {t('landing.cta.createAnonymousReport')}

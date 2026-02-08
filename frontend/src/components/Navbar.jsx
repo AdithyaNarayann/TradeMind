@@ -2,7 +2,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, BarChart3, Settings, Code, Menu, X, Key, Mail, User, LogOut, ChevronDown, Shield, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../context/I18nContext';
-import LanguageSwitcher from './LanguageSwitcher';
 import { getAuthUser, getAuthToken, logout as apiLogout, isAuthenticated } from '../lib/api';
 import faviconSvg from '../assets/favicon.svg';
 
@@ -123,9 +122,6 @@ export default function Navbar() {
               );
             })}
 
-            {/* Language Switcher */}
-            <LanguageSwitcher />
-
             {/* User Avatar / Auth Button */}
             {loggedIn ? (
               <div className="relative" ref={userMenuRef}>
@@ -212,7 +208,6 @@ export default function Navbar() {
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center gap-2">
-            <LanguageSwitcher />
             {loggedIn && (
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
