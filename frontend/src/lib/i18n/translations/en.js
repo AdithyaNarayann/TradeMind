@@ -59,9 +59,9 @@ const en = {
     landing: {
         badge: 'Profit-Aware AI',
         tradeMind: 'TRADE MIND',
-        tagline: 'Negotiate Prices. Protect Margins. Close Better Deals.',
-        description: 'Trade Mind is a profit-aware negotiation engine that negotiates prices on behalf of sellers while never violating business constraints. It maximizes profit when possible — and minimizes loss when it isn\'t.',
-        notAChatbot: 'Not a chatbot. Not random discounts. Real business logic.',
+        tagline: 'Smart Negotiations. Better Margins.',
+        description: 'AI-powered pricing that maximizes profit while respecting your business rules. No random discounts. Just smart business logic.',
+        notAChatbot: 'Intelligent. Profitable. Real.',
         buyAccess: 'Buy Access',
         viewApiDocs: 'View API Docs',
         startReporting: 'Buy Access',
@@ -440,7 +440,7 @@ const en = {
 
     // Alert Banner
     alertBanner: {
-        message: '🤖 AI-POWERED • PROFIT-AWARE • CONSTRAINT-PROTECTED • FULLY AUDITABLE • ',
+        message: ' AI-POWERED • PROFIT-AWARE • CONSTRAINT-PROTECTED • FULLY AUDITABLE • ',
     },
 };
 
