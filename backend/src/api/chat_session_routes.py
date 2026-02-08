@@ -14,6 +14,12 @@ from datetime import datetime
 
 from .auth_routes import get_current_user
 from ..db.mysql import get_conn
+from .email_routes import get_user_email_settings, send_notification_email
+from ..services.email_service import template_deal_notification, template_new_session
+
+import asyncio
+import structlog
+_email_logger = structlog.get_logger("email_notifications")
 
 router = APIRouter(prefix="/api/v1/chat-sessions", tags=["Chat Sessions"])
 
@@ -96,6 +102,22 @@ async def start_session(body: StartSessionRequest, user=Depends(get_current_user
             )
             session_id = cur.lastrowid
             await conn.commit()
+
+    # ── Fire new-session email (non-blocking) ──
+    async def _send_new_session_email():
+        try:
+            settings = await get_user_email_settings(user["id"])
+            if settings and settings.get("notifications_enabled") and settings.get("notify_on_new_session"):
+                subject, html = template_new_session(
+                    seller_name=user["full_name"],
+                    product_name=body.product_name,
+                    session_id=str(session_id),
+                )
+                await send_notification_email(user["id"], subject, html)
+        except Exception as e:
+            _email_logger.error("new_session_email_failed", error=str(e))
+    asyncio.ensure_future(_send_new_session_email())
+
     return {"id": session_id, "status": "active"}
 
 
@@ -292,6 +314,37 @@ async def close_session(session_id: int, body: CloseSessionRequest, user=Depends
                  body.seller_last_offer, body.rounds_used, session_id),
             )
             await conn.commit()
+
+    # ── Fire deal-outcome email (non-blocking) ──
+    if body.status in ("accepted", "rejected"):
+        async def _send_deal_email():
+            try:
+                settings = await get_user_email_settings(user["id"])
+                if settings and settings.get("notifications_enabled") and settings.get("notify_on_deal"):
+                    # Fetch base_price from the session
+                    async with get_conn() as conn2:
+                        async with conn2.cursor() as cur2:
+                            await cur2.execute(
+                                "SELECT product_name, base_price FROM chat_sessions WHERE id = %s",
+                                (session_id,),
+                            )
+                            row = await cur2.fetchone()
+                    product_name = row[0] if row else "Unknown"
+                    base_price = float(row[1]) if row and row[1] else 0.0
+                    subject, html = template_deal_notification(
+                        seller_name=user["full_name"],
+                        product_name=product_name,
+                        outcome=body.status,
+                        final_price=body.final_price or 0.0,
+                        original_price=base_price,
+                        rounds=body.rounds_used,
+                        session_id=str(session_id),
+                    )
+                    await send_notification_email(user["id"], subject, html)
+            except Exception as e:
+                _email_logger.error("deal_email_failed", error=str(e))
+        asyncio.ensure_future(_send_deal_email())
+
     return {"closed": True, "session_id": session_id}
 
 

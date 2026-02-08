@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
+import asyncio
+
 from ..db.mysql import get_conn
 from .auth_routes import get_current_user
 from ..services.email_service import EmailService, template_test_email
@@ -102,7 +104,8 @@ async def send_notification_email(user_id: int, subject: str, html_body: str) ->
 
     service = _build_service(settings)
     to_email = settings["from_email"] or settings["smtp_user"]
-    return service.send(to_email, subject, html_body)
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, service.send, to_email, subject, html_body)
 
 
 # ── Routes ─────────────────────────────────────────────────────────
