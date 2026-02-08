@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, Settings, Code, Menu, X, Key, Mail, User, LogOut, ChevronDown, Shield } from 'lucide-react';
+import { LayoutDashboard, BarChart3, Settings, Code, Menu, X, Key, Mail, User, LogOut, ChevronDown, Shield, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../context/I18nContext';
 import LanguageSwitcher from './LanguageSwitcher';
@@ -13,14 +13,18 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { t } = useI18n();
   const userMenuRef = useRef(null);
+  const mobileUserMenuRef = useRef(null);
 
   const loggedIn = isAuthenticated();
   const user = getAuthUser();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Close user menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+      const insideDesktop = userMenuRef.current && userMenuRef.current.contains(e.target);
+      const insideMobile = mobileUserMenuRef.current && mobileUserMenuRef.current.contains(e.target);
+      if (!insideDesktop && !insideMobile) {
         setUserMenuOpen(false);
       }
     };
@@ -35,9 +39,23 @@ export default function Navbar() {
   }, [location.pathname]);
 
   const handleLogout = () => {
-    apiLogout();
     setUserMenuOpen(false);
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = () => {
+    apiLogout();
+    setShowLogoutConfirm(false);
     navigate('/login');
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutConfirm(false);
+  };
+
+  const handleDropdownNavigate = (path) => {
+    setUserMenuOpen(false);
+    navigate(path);
   };
 
   // Main nav links (removed API & Email — moved to user dropdown)
@@ -147,12 +165,11 @@ export default function Navbar() {
                         const isActive = location.pathname === item.path;
                         const Icon = item.icon;
                         return (
-                          <Link
+                          <button
                             key={item.path}
-                            to={item.path}
-                            onClick={() => setUserMenuOpen(false)}
+                            onClick={() => handleDropdownNavigate(item.path)}
                             className={`
-                              flex items-center gap-2.5 px-3 py-2 text-xs font-bold uppercase tracking-wide
+                              flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold uppercase tracking-wide
                               transition-all duration-100
                               ${isActive
                                 ? 'bg-neo-navy text-neo-cream'
@@ -162,7 +179,7 @@ export default function Navbar() {
                           >
                             <Icon className="w-3.5 h-3.5 flex-shrink-0" />
                             {item.label}
-                          </Link>
+                          </button>
                         );
                       })}
                     </div>
@@ -215,7 +232,7 @@ export default function Navbar() {
 
         {/* Mobile User Dropdown */}
         {userMenuOpen && loggedIn && (
-          <div className="md:hidden border-t-[2px] border-neo-navy/20 py-2 space-y-1" ref={userMenuRef}>
+          <div className="md:hidden border-t-[2px] border-neo-navy/20 py-2 space-y-1" ref={mobileUserMenuRef}>
             <div className="px-3 py-2 bg-neo-navy/5 border-[2px] border-neo-navy/10 mb-1">
               <p className="font-heading font-bold text-xs text-neo-navy">{user?.full_name || 'User'}</p>
               <p className="text-[10px] text-neo-navy/50 font-mono">{user?.email || ''}</p>
@@ -223,15 +240,14 @@ export default function Navbar() {
             {userMenuItems.map((item) => {
               const Icon = item.icon;
               return (
-                <Link
+                <button
                   key={item.path}
-                  to={item.path}
-                  onClick={() => setUserMenuOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2.5 text-xs font-bold uppercase border-[2px] border-neo-navy/20 text-neo-navy hover:bg-neo-orange/15"
+                  onClick={() => handleDropdownNavigate(item.path)}
+                  className="flex items-center gap-2 w-full px-3 py-2.5 text-xs font-bold uppercase border-[2px] border-neo-navy/20 text-neo-navy hover:bg-neo-orange/15"
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {item.label}
-                </Link>
+                </button>
               );
             })}
             <button
@@ -288,6 +304,48 @@ export default function Navbar() {
           </div>
         )}
       </div>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-neo-navy/40 backdrop-blur-sm"
+            onClick={cancelLogout}
+          />
+          {/* Modal */}
+          <div className="relative bg-neo-cream border-[3px] border-neo-navy shadow-neo p-6 w-[90%] max-w-sm">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 bg-neo-maroon/10 border-[3px] border-neo-maroon flex items-center justify-center mb-4">
+                <AlertTriangle className="w-7 h-7 text-neo-maroon" />
+              </div>
+              <h3 className="font-heading font-bold text-lg text-neo-navy uppercase tracking-wide mb-1">
+                Confirm Logout
+              </h3>
+              <p className="text-sm text-neo-navy/60 mb-6">
+                Are you sure you want to log out of your account?
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={cancelLogout}
+                  className="flex-1 px-4 py-2.5 font-heading font-bold text-xs uppercase tracking-wide border-[3px] border-neo-navy bg-neo-cream text-neo-navy hover:bg-neo-navy/5 transition-all duration-150"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLogout}
+                  className="flex-1 px-4 py-2.5 font-heading font-bold text-xs uppercase tracking-wide border-[3px] border-neo-maroon bg-neo-maroon text-neo-cream hover:bg-neo-maroon/90 transition-all duration-150"
+                >
+                  <span className="flex items-center justify-center gap-1.5">
+                    <LogOut className="w-3.5 h-3.5" />
+                    Logout
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

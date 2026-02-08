@@ -1,11 +1,19 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle } from 'lucide-react';
+import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle, Package, Search, ChevronDown, Database, Edit3 } from 'lucide-react';
 import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession, dbSaveCallbackRequest } from './api';
+import { getProducts } from '../../lib/productStore';
 import './Chat.css';
 
 export default function Chat() {
     // Setup config
     const [showSetup, setShowSetup] = useState(true);
+    const [configSource, setConfigSource] = useState('database'); // 'database' | 'manual'
+    const [products, setProductsList] = useState([]);
+    const [productsLoading, setProductsLoading] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState(null);
+    const [productSearch, setProductSearch] = useState('');
+    const [showProductDropdown, setShowProductDropdown] = useState(false);
+    const productDropdownRef = useRef(null);
     const [config, setConfig] = useState({
         mode: 'MAX_PROFIT',
         maxRounds: 10,
@@ -45,23 +53,69 @@ export default function Chat() {
         scrollToBottom();
     }, [messages]);
 
-    // Check backend health on mount
+    // Check backend health on mount & load products
     useEffect(() => {
         healthCheck().then(ok => setBackendHealthy(ok));
+        loadProducts();
     }, []);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        function handleClickOutside(e) {
+            if (productDropdownRef.current && !productDropdownRef.current.contains(e.target)) {
+                setShowProductDropdown(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    async function loadProducts() {
+        setProductsLoading(true);
+        try {
+            const data = await getProducts();
+            setProductsList(data);
+        } catch (err) {
+            console.error('Failed to load products:', err);
+        } finally {
+            setProductsLoading(false);
+        }
+    }
+
+    function selectProduct(product) {
+        setSelectedProduct(product);
+        setConfig({
+            mode: product.mode || 'MAX_PROFIT',
+            maxRounds: product.maxRounds || 10,
+            basePrice: product.basePrice,
+            costPrice: product.costPrice,
+        });
+        setShowProductDropdown(false);
+        setProductSearch('');
+    }
+
+    const filteredProducts = products.filter(p =>
+        p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+        (p.category && p.category.toLowerCase().includes(productSearch.toLowerCase()))
+    );
 
     async function startNegotiation() {
         setLoading(true);
         setError(null);
 
+        const productName = selectedProduct ? selectedProduct.name : 'Custom Product';
+        const productId = selectedProduct ? String(selectedProduct.id) : 'TRADE-001';
+        const minAcceptable = selectedProduct ? selectedProduct.minAcceptablePrice : config.costPrice;
+        const maxLoss = selectedProduct ? (selectedProduct.maxLossPercent || 0) : 0;
+
         const sessionConfig = {
             product: {
-                product_id: "TRADE-001",
-                product_name: "Custom Product",
+                product_id: productId,
+                product_name: productName,
                 base_price: config.basePrice,
                 cost_price: config.costPrice,
-                min_acceptable_price: config.costPrice,
-                max_loss_percentage: 0
+                min_acceptable_price: minAcceptable,
+                max_loss_percentage: maxLoss
             },
             inventory: {
                 available_quantity: 100,
@@ -94,11 +148,11 @@ export default function Chat() {
 
                 // ── Persist to MySQL ──
                 const dbSess = await dbStartSession({
-                    product_name: 'Custom Product',
+                    product_name: productName,
                     mode: config.mode,
                     base_price: config.basePrice,
                     cost_price: config.costPrice,
-                    min_price: config.costPrice,
+                    min_price: minAcceptable,
                     max_rounds: config.maxRounds,
                 });
                 if (dbSess?.id) {
@@ -152,6 +206,9 @@ export default function Chat() {
         setPhoneError('');
         setFinalNegotiationStatus(null);
         setFinalDealPrice(null);
+        setSelectedProduct(null);
+        setProductSearch('');
+        loadProducts();
     }
 
     // ── Callback scheduling handlers ──
@@ -193,7 +250,7 @@ export default function Chat() {
             const result = await dbSaveCallbackRequest({
                 session_id: dbSessionId,
                 phone_number: cleaned,
-                product_name: 'Custom Product',
+                product_name: selectedProduct ? selectedProduct.name : 'Custom Product',
                 negotiation_status: finalNegotiationStatus,
                 final_price: finalDealPrice,
             });
@@ -352,6 +409,11 @@ export default function Chat() {
 
     //  SETUP SCREEN 
     if (showSetup) {
+        const isDbMode = configSource === 'database';
+        const canStart = isDbMode
+            ? (selectedProduct && backendHealthy === true)
+            : (config.basePrice > 0 && config.costPrice > 0 && config.costPrice < config.basePrice && backendHealthy === true);
+
         return (
             <div className="min-h-screen bg-neo-cream flex items-center justify-center p-4">
                 <div className="w-full max-w-lg">
@@ -365,85 +427,235 @@ export default function Chat() {
                     <div className="neo-card p-6 space-y-6">
                         <h2 className="text-xl font-bold text-neo-navy text-center font-heading">Configure Negotiation</h2>
 
-                        {/* Mode Toggle */}
+                        {/* Source Toggle: Database vs Manual */}
                         <div>
-                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Strategy Mode</label>
+                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Product Source</label>
                             <div className="grid grid-cols-2 gap-3">
                                 <button
-                                    onClick={() => setConfig({ ...config, mode: 'MAX_PROFIT' })}
-                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MAX_PROFIT' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                    onClick={() => { setConfigSource('database'); setSelectedProduct(null); }}
+                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (isDbMode ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
                                 >
-                                    <Zap className="w-4 h-4" />
-                                    MAX PROFIT
+                                    <Database className="w-4 h-4" />
+                                    FROM DATABASE
                                 </button>
                                 <button
-                                    onClick={() => setConfig({ ...config, mode: 'MIN_LOSS' })}
-                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MIN_LOSS' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                    onClick={() => { setConfigSource('manual'); setSelectedProduct(null); }}
+                                    className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (!isDbMode ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
                                 >
-                                    <Shield className="w-4 h-4" />
-                                    MIN LOSS
+                                    <Edit3 className="w-4 h-4" />
+                                    MANUAL ENTRY
                                 </button>
                             </div>
                         </div>
 
-                        {/* Max Rounds */}
-                        <div>
-                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Max Rounds</label>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => setConfig({ ...config, maxRounds: Math.max(1, config.maxRounds - 1) })}
-                                    className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
-                                >
-                                    <Minus className="w-4 h-4" />
-                                </button>
-                                <div className="flex-1 px-4 py-2.5 border-3 border-neo-navy bg-neo-teal text-neo-cream text-center font-bold text-xl shadow-neo">
-                                    {config.maxRounds}
+                        {/* ── Database Product Picker ── */}
+                        {isDbMode && (
+                            <div>
+                                <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Select Product</label>
+                                <div className="relative" ref={productDropdownRef}>
+                                    {/* Search / Trigger */}
+                                    <div
+                                        className={"flex items-center border-3 border-neo-navy overflow-hidden cursor-pointer " + (selectedProduct ? 'bg-neo-teal/10' : 'bg-white')}
+                                        onClick={() => setShowProductDropdown(!showProductDropdown)}
+                                    >
+                                        <span className="px-3 py-3 bg-neo-navy text-neo-cream">
+                                            <Package className="w-5 h-5" />
+                                        </span>
+                                        {showProductDropdown ? (
+                                            <input
+                                                type="text"
+                                                value={productSearch}
+                                                onChange={e => setProductSearch(e.target.value)}
+                                                placeholder="Search products..."
+                                                className="flex-1 px-3 py-3 bg-transparent text-neo-navy font-bold focus:outline-none"
+                                                autoFocus
+                                                onClick={e => e.stopPropagation()}
+                                            />
+                                        ) : (
+                                            <span className={"flex-1 px-3 py-3 font-bold " + (selectedProduct ? 'text-neo-navy' : 'text-neo-navy/50')}>
+                                                {selectedProduct ? selectedProduct.name : 'Choose a product...'}
+                                            </span>
+                                        )}
+                                        <span className="px-3 py-3 text-neo-navy">
+                                            <ChevronDown className={"w-5 h-5 transition-transform " + (showProductDropdown ? 'rotate-180' : '')} />
+                                        </span>
+                                    </div>
+
+                                    {/* Dropdown */}
+                                    {showProductDropdown && (
+                                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border-3 border-neo-navy z-50 max-h-64 overflow-y-auto shadow-neo product-dropdown">
+                                            {productsLoading ? (
+                                                <div className="flex items-center justify-center gap-2 p-4 text-neo-navy/60">
+                                                    <Loader2 className="w-4 h-4 animate-spin" /> Loading products...
+                                                </div>
+                                            ) : filteredProducts.length === 0 ? (
+                                                <div className="p-4 text-center">
+                                                    <Package className="w-8 h-8 text-neo-navy/20 mx-auto mb-2" />
+                                                    <p className="text-sm text-neo-navy/50 font-bold">
+                                                        {products.length === 0 ? 'No products found. Add products in the Products section first.' : 'No matching products.'}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                filteredProducts.map(p => (
+                                                    <button
+                                                        key={p.id}
+                                                        onClick={() => selectProduct(p)}
+                                                        className={"w-full text-left px-4 py-3 hover:bg-neo-orange/10 transition-colors border-b border-neo-navy/10 last:border-b-0 " + (selectedProduct?.id === p.id ? 'bg-neo-teal/10' : '')}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <div>
+                                                                <p className="font-bold text-neo-navy text-sm">{p.name}</p>
+                                                                <p className="text-xs text-neo-navy/50 mt-0.5">
+                                                                    {p.category} · {p.mode === 'MAX_PROFIT' ? 'Max Profit' : 'Min Loss'} · {p.maxRounds} rounds
+                                                                </p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="font-bold text-neo-teal text-sm">${p.basePrice.toFixed(2)}</p>
+                                                                <p className="text-xs text-neo-navy/40">Cost: ${p.costPrice.toFixed(2)}</p>
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                <button
-                                    onClick={() => setConfig({ ...config, maxRounds: Math.min(20, config.maxRounds + 1) })}
-                                    className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
 
-                        {/* Base Price */}
-                        <div>
-                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Base Price (Selling Price)</label>
-                            <div className="flex items-center border-3 border-neo-navy overflow-hidden">
-                                <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
-                                <input
-                                    type="number"
-                                    value={config.basePrice}
-                                    onChange={(e) => setConfig({ ...config, basePrice: parseFloat(e.target.value) || 0 })}
-                                    className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
-                                    min="1"
-                                    step="1"
-                                />
+                                {/* Selected Product Summary Card */}
+                                {selectedProduct && (
+                                    <div className="mt-3 border-3 border-neo-navy bg-neo-teal/5 p-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="font-bold text-neo-navy text-sm flex items-center gap-2">
+                                                <Package className="w-4 h-4 text-neo-teal" />
+                                                {selectedProduct.name}
+                                            </h3>
+                                            <button
+                                                onClick={() => { setSelectedProduct(null); setConfig({ mode: 'MAX_PROFIT', maxRounds: 10, basePrice: 100, costPrice: 40 }); }}
+                                                className="text-neo-navy/40 hover:text-neo-maroon transition-colors"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="border-2 border-neo-navy/20 p-2 bg-white">
+                                                <p className="text-[10px] font-bold text-neo-navy/50 uppercase tracking-widest">Base Price</p>
+                                                <p className="text-lg font-bold text-neo-navy">${selectedProduct.basePrice.toFixed(2)}</p>
+                                            </div>
+                                            <div className="border-2 border-neo-navy/20 p-2 bg-white">
+                                                <p className="text-[10px] font-bold text-neo-navy/50 uppercase tracking-widest">Cost Price</p>
+                                                <p className="text-lg font-bold text-neo-navy">${selectedProduct.costPrice.toFixed(2)}</p>
+                                            </div>
+                                            <div className="border-2 border-neo-navy/20 p-2 bg-white">
+                                                <p className="text-[10px] font-bold text-neo-navy/50 uppercase tracking-widest">Min Acceptable</p>
+                                                <p className="text-lg font-bold text-neo-navy">${selectedProduct.minAcceptablePrice.toFixed(2)}</p>
+                                            </div>
+                                            <div className="border-2 border-neo-navy/20 p-2 bg-white">
+                                                <p className="text-[10px] font-bold text-neo-navy/50 uppercase tracking-widest">Margin</p>
+                                                <p className="text-lg font-bold text-neo-teal">
+                                                    {((selectedProduct.basePrice - selectedProduct.costPrice) / selectedProduct.basePrice * 100).toFixed(1)}%
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="px-2 py-1 bg-neo-teal text-neo-cream font-bold text-[10px] border border-neo-navy uppercase">
+                                                {selectedProduct.mode === 'MAX_PROFIT' ? 'Max Profit' : 'Min Loss'}
+                                            </span>
+                                            <span className="px-2 py-1 bg-neo-navy text-neo-cream font-bold text-[10px] border border-neo-navy uppercase">
+                                                {selectedProduct.maxRounds} Rounds
+                                            </span>
+                                            <span className="px-2 py-1 bg-neo-orange/20 text-neo-navy font-bold text-[10px] border border-neo-navy uppercase">
+                                                {selectedProduct.category}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        )}
 
-                        {/* Cost Price */}
-                        <div>
-                            <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Actual Cost Price</label>
-                            <div className="flex items-center border-3 border-neo-navy overflow-hidden">
-                                <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
-                                <input
-                                    type="number"
-                                    value={config.costPrice}
-                                    onChange={(e) => setConfig({ ...config, costPrice: parseFloat(e.target.value) || 0 })}
-                                    className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
-                                    min="1"
-                                    step="1"
-                                />
-                            </div>
-                        </div>
+                        {/* ── Manual Entry Fields ── */}
+                        {!isDbMode && (
+                            <>
+                                {/* Mode Toggle */}
+                                <div>
+                                    <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Strategy Mode</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => setConfig({ ...config, mode: 'MAX_PROFIT' })}
+                                            className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MAX_PROFIT' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                        >
+                                            <Zap className="w-4 h-4" />
+                                            MAX PROFIT
+                                        </button>
+                                        <button
+                                            onClick={() => setConfig({ ...config, mode: 'MIN_LOSS' })}
+                                            className={"px-4 py-3 border-3 border-neo-navy font-bold text-sm transition-all flex items-center justify-center gap-2 " + (config.mode === 'MIN_LOSS' ? 'bg-neo-teal text-neo-cream shadow-neo' : 'bg-white text-neo-navy hover:bg-neo-navy/5')}
+                                        >
+                                            <Shield className="w-4 h-4" />
+                                            MIN LOSS
+                                        </button>
+                                    </div>
+                                </div>
 
-                        {config.costPrice >= config.basePrice && (
-                            <p className="text-neo-maroon text-sm font-bold flex items-center gap-1">
-                                <AlertCircle className="w-4 h-4" /> Cost price must be less than base price
-                            </p>
+                                {/* Max Rounds */}
+                                <div>
+                                    <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Max Rounds</label>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => setConfig({ ...config, maxRounds: Math.max(1, config.maxRounds - 1) })}
+                                            className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                        >
+                                            <Minus className="w-4 h-4" />
+                                        </button>
+                                        <div className="flex-1 px-4 py-2.5 border-3 border-neo-navy bg-neo-teal text-neo-cream text-center font-bold text-xl shadow-neo">
+                                            {config.maxRounds}
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, maxRounds: Math.min(20, config.maxRounds + 1) })}
+                                            className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Base Price */}
+                                <div>
+                                    <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Base Price (Selling Price)</label>
+                                    <div className="flex items-center border-3 border-neo-navy overflow-hidden">
+                                        <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
+                                        <input
+                                            type="number"
+                                            value={config.basePrice}
+                                            onChange={(e) => setConfig({ ...config, basePrice: parseFloat(e.target.value) || 0 })}
+                                            className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
+                                            min="1"
+                                            step="1"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Cost Price */}
+                                <div>
+                                    <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Actual Cost Price</label>
+                                    <div className="flex items-center border-3 border-neo-navy overflow-hidden">
+                                        <span className="px-3 py-2.5 bg-neo-navy text-neo-cream font-bold text-lg">$</span>
+                                        <input
+                                            type="number"
+                                            value={config.costPrice}
+                                            onChange={(e) => setConfig({ ...config, costPrice: parseFloat(e.target.value) || 0 })}
+                                            className="flex-1 px-3 py-2.5 bg-white text-neo-navy font-bold text-lg focus:outline-none config-input"
+                                            min="1"
+                                            step="1"
+                                        />
+                                    </div>
+                                </div>
+
+                                {config.costPrice >= config.basePrice && (
+                                    <p className="text-neo-maroon text-sm font-bold flex items-center gap-1">
+                                        <AlertCircle className="w-4 h-4" /> Cost price must be less than base price
+                                    </p>
+                                )}
+                            </>
                         )}
 
                         {backendHealthy === false && (
@@ -460,8 +672,8 @@ export default function Chat() {
 
                         <button
                             onClick={startNegotiation}
-                            disabled={loading || backendHealthy !== true || config.costPrice >= config.basePrice || config.basePrice <= 0 || config.costPrice <= 0}
-                            className={"w-full py-4 border-3 border-neo-navy font-bold text-lg flex items-center justify-center gap-2 transition-all " + (loading || backendHealthy !== true || config.costPrice >= config.basePrice ? 'bg-neo-navy/20 text-neo-navy/40 cursor-not-allowed' : 'bg-neo-orange text-neo-navy shadow-neo hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]')}
+                            disabled={loading || !canStart}
+                            className={"w-full py-4 border-3 border-neo-navy font-bold text-lg flex items-center justify-center gap-2 transition-all " + (loading || !canStart ? 'bg-neo-navy/20 text-neo-navy/40 cursor-not-allowed' : 'bg-neo-orange text-neo-navy shadow-neo hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]')}
                         >
                             {loading ? (
                                 <><Loader2 className="w-5 h-5 animate-spin" /> Creating Session...</>
@@ -469,6 +681,12 @@ export default function Chat() {
                                 <><TrendingUp className="w-5 h-5" /> Start Negotiation</>
                             )}
                         </button>
+
+                        {isDbMode && !selectedProduct && products.length === 0 && !productsLoading && (
+                            <p className="text-neo-navy/50 text-xs text-center font-bold">
+                                No products in your catalog yet. Add products in the <a href="/products" className="text-neo-teal underline hover:text-neo-orange">Products</a> section or switch to Manual Entry.
+                            </p>
+                        )}
 
                         {error && <p className="text-neo-maroon text-sm text-center font-bold">{error}</p>}
                     </div>
@@ -492,6 +710,11 @@ export default function Chat() {
                         </div>
                     </div>
                     <div className="hidden sm:flex flex-wrap items-center gap-2">
+                        {selectedProduct && (
+                            <span className="bg-neo-orange px-3 py-1 border-2 border-neo-cream font-bold text-xs text-neo-navy">
+                                {selectedProduct.name}
+                            </span>
+                        )}
                         <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
                             {config.mode === 'MAX_PROFIT' ? 'MAX PROFIT' : 'MIN LOSS'}
                         </span>

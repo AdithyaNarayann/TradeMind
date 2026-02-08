@@ -150,3 +150,26 @@ input[type="tel"]:focus {
     border-color: #FF7D00 !important;
     box-shadow: 3px 3px 0px #001524;
 }
+
+/* Product dropdown styling */
+.product-dropdown {
+    scrollbar-width: thin;
+    scrollbar-color: #15616D #FFECD1;
+}
+
+.product-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+
+.product-dropdown::-webkit-scrollbar-track {
+    background: #FFECD1;
+}
+
+.product-dropdown::-webkit-scrollbar-thumb {
+    background: #15616D;
+    border-radius: 3px;
+}
+
+.product-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #FF7D00;
+}

@@ -190,10 +190,10 @@ class PricingStrategyAgent:
             data = json.loads(self._clean_json(result.content))
             offer = Decimal(str(data["initial_offer"]))
 
-            # Guardrail: clamp between min_acceptable and base
-            offer = max(product.min_acceptable_price, min(product.base_price, offer))
+            # Guardrail: always start at base price
+            offer = product.base_price
 
-            # Quantity discount
+            # Quantity discount (only for multi-unit orders)
             if inventory.requested_quantity > 1:
                 offer = offer * posture.quantity_discount_factor
                 offer = max(product.min_acceptable_price, offer)
@@ -314,17 +314,10 @@ class PricingStrategyAgent:
         inventory: InventoryContext,
         posture: StrategicPosture,
     ) -> Decimal:
-        """Simple heuristic opening offer."""
-        base = product.base_price
-        target = posture.target_price
+        """Always start at the base (listed) price."""
+        initial = product.base_price
 
-        if posture.aggressiveness >= Decimal("0.7"):
-            initial = base
-        elif posture.aggressiveness >= Decimal("0.4"):
-            initial = target + (base - target) * Decimal("0.3")
-        else:
-            initial = target
-
+        # Only apply quantity discount for multi-unit orders
         if inventory.requested_quantity > 1:
             initial = initial * posture.quantity_discount_factor
 

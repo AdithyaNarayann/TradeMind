@@ -309,15 +309,14 @@ CONTEXT:
 - Quantity discount factor: {quantity_discount_factor} (1.0 = no discount)
 
 RULES:
-- Opening offer should be at or above the target price
-- More aggressive sellers should start closer to base price
-- Consider the anchoring effect — a higher initial offer gives more room to negotiate
-- Apply quantity discount factor if buyer wants multiple units
-- The offer MUST be between min_acceptable_price and base_price
+- The opening offer MUST always be the base/listed price (${base_price})
+- The seller always starts the negotiation at full asking price — no early discounts
+- Apply quantity discount factor ONLY if buyer wants multiple units
+- After applying quantity discount, the offer must still be >= min_acceptable_price
 
 Respond with ONLY this JSON:
 {{
-  "initial_offer": <float, the opening offer price per unit>,
+  "initial_offer": <float, the opening offer price per unit — should be base_price>,
   "reasoning": "<brief 1-sentence reasoning>"
 }}"""
 
