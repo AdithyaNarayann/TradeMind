@@ -530,7 +530,7 @@ export default function Authority() {
               </div>
             </NeoCard>
 
-            {/* ─── Opportunity Score (Meta Ads style) ──────────── */}
+            {/* ─── Opportunity Score ──────────────────────────────── */}
             <NeoCard className="p-2 sm:p-4">
               <h3 className="font-bold text-neo-navy text-xs sm:text-sm uppercase mb-2 sm:mb-3 flex items-center gap-1.5">
                 <Target className="w-4 h-4 text-neo-orange" />
@@ -666,6 +666,47 @@ export default function Authority() {
                   )}
                 </div>
               )}
+
+              {/* ─── Add to Products Button (inside score card) ──── */}
+              <div className="mt-3 pt-3 border-t-[2px] border-neo-navy/10">
+                <button
+                  onClick={handleAddToProducts}
+                  disabled={addingProduct || !product.product_name || !product.selling_price || !product.cost_price}
+                  className={`
+                    w-full flex items-center justify-center gap-2 px-3 py-2.5 font-heading font-bold text-xs uppercase tracking-wide
+                    border-[3px] border-neo-navy transition-all duration-150
+                    ${addingProduct || !product.product_name || !product.selling_price || !product.cost_price
+                      ? 'bg-neo-navy/10 text-neo-navy/30 cursor-not-allowed border-neo-navy/20'
+                      : 'bg-neo-teal text-neo-navy shadow-neo hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none'
+                    }
+                  `}
+                >
+                  {addingProduct ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-neo-navy border-t-transparent rounded-full animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-4 h-4" />
+                      Add to Products
+                    </>
+                  )}
+                </button>
+                {addProductMsg && (
+                  <div className={`mt-2 p-2 text-[10px] font-bold flex items-center gap-1 border-[2px] ${
+                    addProductMsg.type === 'success'
+                      ? 'bg-neo-teal/10 border-neo-teal text-neo-teal'
+                      : 'bg-neo-maroon/10 border-neo-maroon text-neo-maroon'
+                  }`}>
+                    {addProductMsg.type === 'success' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                    <span className="flex-1">{addProductMsg.text}</span>
+                    {addProductMsg.type === 'success' && (
+                      <Link to="/products" className="underline hover:text-neo-navy ml-1">View →</Link>
+                    )}
+                  </div>
+                )}
+              </div>
             </NeoCard>
           </div>
 
@@ -709,40 +750,7 @@ export default function Authority() {
               )}
             </NeoButton>
 
-            <NeoButton
-              onClick={handleAddToProducts}
-              variant="teal"
-              className="flex-1 !py-2.5 sm:!py-3 !text-xs sm:!text-sm"
-              disabled={addingProduct || !product.product_name || !product.selling_price || !product.cost_price}
-            >
-              {addingProduct ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-neo-cream border-t-transparent rounded-full animate-spin mr-2" />
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <PlusCircle className="w-4 h-4 mr-2" />
-                  Add to Products
-                </>
-              )}
-            </NeoButton>
           </div>
-
-          {/* Success message for Add to Products */}
-          {addProductMsg && (
-            <div className="mb-4 sm:mb-6">
-              <NeoCard className={`p-2 sm:p-3 ${addProductMsg.type === 'success' ? 'bg-neo-teal/10 border-neo-teal' : 'bg-neo-maroon/10 border-neo-maroon'}`}>
-                <p className={`font-bold text-[10px] sm:text-xs flex items-center gap-1 ${addProductMsg.type === 'success' ? 'text-neo-teal' : 'text-neo-maroon'}`}>
-                  {addProductMsg.type === 'success' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                  {addProductMsg.text}
-                  {addProductMsg.type === 'success' && (
-                    <Link to="/products" className="underline ml-2 hover:text-neo-navy">View Products →</Link>
-                  )}
-                </p>
-              </NeoCard>
-            </div>
-          )}
 
           {/* Error Display */}
           {error && (
