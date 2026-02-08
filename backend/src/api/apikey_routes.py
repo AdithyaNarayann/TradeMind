@@ -8,6 +8,12 @@ import aiomysql
 
 from ..db.mysql import get_conn
 from .auth_routes import get_current_user
+from .email_routes import get_user_email_settings, send_notification_email
+from ..services.email_service import template_api_key_created, template_api_key_revoked
+
+import asyncio
+import structlog
+_email_logger = structlog.get_logger("email_notifications")
 
 router = APIRouter(prefix="/api/v1/api-keys", tags=["API Keys"])
 
@@ -29,6 +35,23 @@ async def create_api_key(body: dict = None, user=Depends(get_current_user)):
                 (user["id"], key, label),
             )
             key_id = cur.lastrowid
+
+    # ── Fire API-key-created email (non-blocking) ──
+    async def _send_key_created_email():
+        try:
+            settings = await get_user_email_settings(user["id"])
+            if settings and settings.get("notifications_enabled") and settings.get("notify_on_api_key"):
+                key_preview = key[:3] + "•" * 12 + key[-8:]
+                subject, html = template_api_key_created(
+                    user_name=user["full_name"],
+                    key_label=label,
+                    key_preview=key_preview,
+                )
+                await send_notification_email(user["id"], subject, html)
+        except Exception as e:
+            _email_logger.error("api_key_created_email_failed", error=str(e))
+    asyncio.ensure_future(_send_key_created_email())
+
     return {"id": key_id, "api_key": key, "label": label}
 
 
@@ -64,4 +87,20 @@ async def revoke_api_key(key_id: int, user=Depends(get_current_user)):
             )
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="API key not found")
+
+    # ── Fire API-key-revoked email (non-blocking) ──
+    async def _send_key_revoked_email():
+        try:
+            settings = await get_user_email_settings(user["id"])
+            if settings and settings.get("notifications_enabled") and settings.get("notify_on_api_key"):
+                subject, html = template_api_key_revoked(
+                    user_name=user["full_name"],
+                    key_label=f"Key #{key_id}",
+                    key_preview=f"(revoked)",
+                )
+                await send_notification_email(user["id"], subject, html)
+        except Exception as e:
+            _email_logger.error("api_key_revoked_email_failed", error=str(e))
+    asyncio.ensure_future(_send_key_revoked_email())
+
     return {"deleted": True}

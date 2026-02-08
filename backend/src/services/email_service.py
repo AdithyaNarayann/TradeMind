@@ -186,6 +186,33 @@ def template_api_key_created(
     return subject, html
 
 
+def template_api_key_revoked(
+    user_name: str,
+    key_label: str,
+    key_preview: str,
+) -> tuple[str, str]:
+    """Returns (subject, html_body) for API key revocation alert."""
+    subject = "🗑️ API Key Revoked — TradeMind"
+    html = f"""<!DOCTYPE html><html><head>{_BASE_STYLE}</head><body>
+    <div class="container">
+      <div class="header">
+        <h1>TRADE<span class="accent">MIND</span></h1>
+      </div>
+      <div class="body">
+        <p>Hi <strong>{user_name}</strong>,</p>
+        <p>An API key was just <span style="color:#78290F;font-weight:700">REVOKED</span> on your account.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="padding:8px 0;color:#888">Label</td><td style="padding:8px 0;font-weight:600">{key_label}</td></tr>
+          <tr><td style="padding:8px 0;color:#888">Key Preview</td><td style="padding:8px 0;font-family:monospace">{key_preview}</td></tr>
+        </table>
+        <p style="color:#78290F;font-weight:600">If you did not revoke this key, please check your account security immediately.</p>
+      </div>
+      <div class="footer">TradeMind Negotiation Platform</div>
+    </div>
+    </body></html>"""
+    return subject, html
+
+
 def template_test_email(user_name: str) -> tuple[str, str]:
     """Returns (subject, html_body) for a test email."""
     subject = "✅ TradeMind — Email Configuration Test"
