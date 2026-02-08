@@ -321,6 +321,11 @@ export default function JuryDashboard() {
                                   <ArrowDownRight className="w-2.5 h-2.5 inline" />{discount}%
                                 </span>
                               )}
+                              {discount && parseFloat(discount) < 0 && (
+                                <span className="ml-1 text-[9px] font-bold text-neo-teal">
+                                  <ArrowUpRight className="w-2.5 h-2.5 inline" />{Math.abs(parseFloat(discount))}%
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-neo-navy/20">—</span>

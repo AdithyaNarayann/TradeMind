@@ -335,7 +335,7 @@ export default function Landing() {
                 {t('landing.cta.createAnonymousReport')}
               </NeoButton>
             </Link>
-            <Link to="/authority">
+            <Link to="/wallet">
               <NeoButton size="lg">
                 {t('landing.cta.authorityLogin')}
               </NeoButton>
