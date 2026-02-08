@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Mail, Save, Send, Eye, EyeOff, CheckCircle, XCircle, Bell, BellOff, Shield, Loader2, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import Navbar from '../components/Navbar';
+import Layout from '../components/Layout';
 import { getEmailSettings, updateEmailSettings, sendTestEmail } from '../lib/api';
 
 export default function EmailSettings() {
@@ -87,19 +87,17 @@ export default function EmailSettings() {
 
   if (loading) {
     return (
-      <>
-        <Navbar />
-        <div className="min-h-screen bg-neo-cream flex items-center justify-center">
+      <Layout>
+        <div className="min-h-[60vh] bg-neo-cream flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-neo-teal" />
         </div>
-      </>
+      </Layout>
     );
   }
 
   return (
-    <>
-      <Navbar />
-      <div className="min-h-screen bg-neo-cream">
+    <Layout>
+      <div className="min-h-[60vh] bg-neo-cream">
         {/* Header */}
         <div className="bg-neo-navy border-b-[3px] border-neo-navy">
           <div className="container mx-auto px-4 py-6">
@@ -342,6 +340,6 @@ export default function EmailSettings() {
           </div>
         </div>
       </div>
-    </>
+    </Layout>
   );
 }

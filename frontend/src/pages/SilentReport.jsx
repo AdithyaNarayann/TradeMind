@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, ArrowLeft, Send, RotateCcw, HelpCircle, Cpu, Fingerprint, AlertTriangle } from 'lucide-react';
+import { Play, ArrowLeft, Send, RotateCcw, HelpCircle, Cpu, Fingerprint, AlertTriangle, Radio } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
 import NeoButton from '../components/NeoButton';
@@ -21,9 +21,9 @@ export default function SilentReport() {
 
   // Severity patterns (number of long taps)
   const severityPatterns = {
-    low: { code: '—', level: 1 - 3 },
-    medium: { code: '— —', level: 4 - 6 },
-    high: { code: '— — —', level: 7 - 10 },
+    low: { code: '—', level: '1-3' },
+    medium: { code: '— —', level: '4-6' },
+    high: { code: '— — —', level: '7-10' },
   };
 
   const { sessionId, walletAddress } = useSession();
@@ -269,9 +269,9 @@ export default function SilentReport() {
                 <div>
                   <p className="text-[10px] sm:text-xs text-neo-navy/60 uppercase mb-2 font-bold">{t('silentReport.severity')}</p>
                   <div className={`inline-flex items-center gap-2 px-3 py-2 border-[2px] font-bold text-xs sm:text-sm uppercase ${decodedSeverity === 'high' ? 'bg-neo-maroon border-neo-navy text-neo-cream' :
-                      decodedSeverity === 'medium' ? 'bg-neo-orange border-neo-navy text-neo-navy' :
-                        decodedSeverity === 'low' ? 'bg-neo-teal border-neo-navy text-neo-cream' :
-                          'bg-neo-cream border-neo-navy/30 text-neo-navy/50'
+                    decodedSeverity === 'medium' ? 'bg-neo-orange border-neo-navy text-neo-navy' :
+                      decodedSeverity === 'low' ? 'bg-neo-teal border-neo-navy text-neo-cream' :
+                        'bg-neo-cream border-neo-navy/30 text-neo-navy/50'
                     }`}>
                     {decodedSeverity || t('silentReport.notDetected')}
                   </div>

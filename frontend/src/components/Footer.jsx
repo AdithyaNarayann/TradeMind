@@ -62,10 +62,10 @@ export default function Footer() {
             {t('footer.copyright')}
           </p>
           <div className="flex items-center gap-4">
-            <a href="#" className="text-neo-cream/50 hover:text-neo-orange transition-colors">
+            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-neo-cream/50 hover:text-neo-orange transition-colors">
               <Github className="w-5 h-5" />
             </a>
-            <a href="#" className="text-neo-cream/50 hover:text-neo-orange transition-colors">
+            <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-neo-cream/50 hover:text-neo-orange transition-colors">
               <Twitter className="w-5 h-5" />
             </a>
           </div>

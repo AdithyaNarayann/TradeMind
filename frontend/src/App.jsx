@@ -66,6 +66,17 @@ function App() {
 
             {/* Chat / Negotiation Demo */}
             <Route path="/chat" element={<Chat />} />
+
+            {/* 404 Catch-all */}
+            <Route path="*" element={
+              <div className="min-h-screen bg-neo-cream flex flex-col items-center justify-center p-4 text-center">
+                <h1 className="text-6xl sm:text-8xl font-heading font-bold text-neo-navy mb-4">404</h1>
+                <p className="text-lg text-neo-navy/70 mb-6">Page not found</p>
+                <a href="/" className="px-6 py-3 bg-neo-orange border-[3px] border-neo-navy font-heading font-bold text-neo-navy shadow-neo hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
+                  Go Home
+                </a>
+              </div>
+            } />
           </Routes>
         </SessionProvider>
       </BrowserRouter>

@@ -305,7 +305,7 @@ export default function SourceNetwork({ webContext, onChainHash }) {
           </div>
 
           {/* 3D Canvas */}
-          <div className="h-[280px] bg-neo-navy relative">
+          <div className="h-[200px] sm:h-[280px] lg:h-[360px] bg-neo-navy relative">
             <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
               <color attach="background" args={['#1e293b']} />
               <fog attach="fog" args={['#1e293b', 5, 15]} />

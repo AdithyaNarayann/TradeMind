@@ -53,6 +53,18 @@ export default function JuryDashboard() {
   }, []);
 
   useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+
+  // Close modals on Escape key
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        if (chatModal) setChatModal(null);
+        if (callbacksModal) setCallbacksModal(false);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [chatModal, callbacksModal]);
   useEffect(() => {
     const timer = setInterval(() => fetchDashboard(true), 30000);
     return () => clearInterval(timer);
@@ -63,7 +75,9 @@ export default function JuryDashboard() {
     try {
       const session = await exportSession(sessionId);
       setChatModal(session);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('Failed to view chat:', err);
+    }
     setChatLoading(false);
   };
 
@@ -99,7 +113,9 @@ export default function JuryDashboard() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('Failed to export session:', err);
+    }
     setExporting(p => ({ ...p, [key]: false }));
   };
 
@@ -247,8 +263,8 @@ export default function JuryDashboard() {
                 <h2 className="font-heading font-bold text-neo-navy text-sm uppercase tracking-wider">
                   History
                 </h2>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap overflow-x-auto">
+                  <div className="relative flex-shrink-0">
                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-neo-navy/30" />
                     <input
                       type="text"
@@ -258,7 +274,7 @@ export default function JuryDashboard() {
                       className="pl-8 pr-3 py-1.5 text-xs border-[2px] border-neo-navy/15 bg-white focus:border-neo-orange outline-none w-36 font-mono"
                     />
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 overflow-x-auto flex-shrink-0">
                     {['all', 'accepted', 'rejected', 'expired', 'walked_away'].map(f => (
                       <button
                         key={f}
@@ -278,7 +294,8 @@ export default function JuryDashboard() {
 
               <div className="bg-white border-[3px] border-neo-navy overflow-hidden">
                 {/* Table header */}
-                <div className="bg-neo-navy grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_1fr] text-[10px] font-bold uppercase tracking-wider text-neo-cream/50">
+                <div className="overflow-x-auto">
+                <div className="bg-neo-navy grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_0.8fr] min-w-[600px] text-[10px] font-bold uppercase tracking-wider text-neo-cream/50">
                   {[
                     { field: 'product_name', label: 'Product' },
                     { field: 'status',       label: 'Status'  },
@@ -314,7 +331,7 @@ export default function JuryDashboard() {
                     return (
                       <div
                         key={session.id}
-                        className={`grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_1fr] items-center text-xs border-b last:border-b-0 border-neo-navy/5 ${
+                        className={`grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_1fr] min-w-[600px] items-center text-xs border-b last:border-b-0 border-neo-navy/5 ${
                           idx % 2 === 0 ? 'bg-white' : 'bg-neo-cream/30'
                         } hover:bg-neo-orange/5 transition-colors`}
                       >
@@ -373,6 +390,7 @@ export default function JuryDashboard() {
                     );
                   })
                 )}
+                </div>
               </div>
 
               <p className="text-[10px] text-neo-navy/30 mt-2 text-right">

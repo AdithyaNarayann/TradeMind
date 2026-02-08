@@ -101,6 +101,17 @@ export default function ProductCatalog() {
 
     useEffect(() => { reload(); }, []);
 
+    // Close modal on Escape key
+    useEffect(() => {
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                if (analyticsOpen) { setAnalyticsOpen(null); setLiveStats(null); }
+                if (showForm) setShowForm(false);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+        return () => document.removeEventListener('keydown', handleEsc);
+    }, [analyticsOpen, showForm]);
     async function reload() {
         setProducts(await getProducts());
     }

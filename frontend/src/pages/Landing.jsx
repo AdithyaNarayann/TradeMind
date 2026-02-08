@@ -75,7 +75,7 @@ export default function Landing() {
               </div>
 
               {/* Main Heading */}
-              <h1 className="text-7xl md:text-9xl font-heading font-bold mb-4 leading-none text-neo-navy">
+              <h1 className="text-5xl sm:text-7xl md:text-9xl font-heading font-bold mb-4 leading-none text-neo-navy">
                 TRADE
                 <span className="block text-neo-orange relative">
                   MIND

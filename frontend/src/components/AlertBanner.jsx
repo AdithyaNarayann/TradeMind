@@ -11,8 +11,8 @@ export default function AlertBanner() {
   return (
     <div className="neo-alert-banner">
       <div className="relative flex overflow-hidden">
-        <div className="neo-alert-text flex items-center gap-3">
-          <TrendingUp className="w-5 h-5 inline-block" />
+        <div className="neo-alert-text flex items-center gap-3 motion-reduce:animate-none">
+          <TrendingUp className="w-5 h-5 inline-block flex-shrink-0" />
           {repeatedMessage}
         </div>
       </div>
