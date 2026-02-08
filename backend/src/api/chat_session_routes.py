@@ -119,43 +119,7 @@ async def list_sessions(user=Depends(get_current_user)):
     return [_row_to_session(r, cols) for r in rows]
 
 
-@router.get("/{session_id}")
-async def get_session(session_id: int, user=Depends(get_current_user)):
-    async with get_conn() as conn:
-        async with conn.cursor() as cur:
-            # Session
-            await cur.execute(
-                """SELECT id, product_name, mode, base_price, cost_price,
-                          min_price, max_rounds, rounds_used, status,
-                          final_price, final_decision, deal_closed,
-                          buyer_last_offer, seller_last_offer,
-                          created_at, closed_at
-                   FROM chat_sessions
-                   WHERE id = %s AND user_id = %s""",
-                (session_id, user["id"]),
-            )
-            cols = [d[0] for d in cur.description]
-            row = await cur.fetchone()
-            if not row:
-                raise HTTPException(404, "Session not found")
-            session = _row_to_session(row, cols)
-
-            # Messages
-            await cur.execute(
-                """SELECT id, round_number, user_message, bot_reply,
-                          offered_price, counter_price, decision, created_at
-                   FROM chat_messages
-                   WHERE session_id = %s AND user_id = %s
-                   ORDER BY round_number, id""",
-                (session_id, user["id"]),
-            )
-            msg_cols = [d[0] for d in cur.description]
-            msg_rows = await cur.fetchall()
-            session["messages"] = [_row_to_message(r, msg_cols) for r in msg_rows]
-
-    return session
-
-# ── Callback request endpoints ─────────────────────────────────────
+# ── Callback request endpoints (MUST be before /{session_id}) ─────
 
 @router.post("/callback-request")
 async def create_callback_request(body: CallbackRequest, user=Depends(get_current_user)):
@@ -207,6 +171,65 @@ async def list_callback_requests(user=Depends(get_current_user)):
                     d["final_price"] = float(d["final_price"])
                 results.append(d)
     return results
+
+
+@router.get("/{session_id}")
+async def get_session(session_id: int, user=Depends(get_current_user)):
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            # Session
+            await cur.execute(
+                """SELECT id, product_name, mode, base_price, cost_price,
+                          min_price, max_rounds, rounds_used, status,
+                          final_price, final_decision, deal_closed,
+                          buyer_last_offer, seller_last_offer,
+                          created_at, closed_at
+                   FROM chat_sessions
+                   WHERE id = %s AND user_id = %s""",
+                (session_id, user["id"]),
+            )
+            cols = [d[0] for d in cur.description]
+            row = await cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Session not found")
+            session = _row_to_session(row, cols)
+
+            # Messages
+            await cur.execute(
+                """SELECT id, round_number, user_message, bot_reply,
+                          offered_price, counter_price, decision, created_at
+                   FROM chat_messages
+                   WHERE session_id = %s AND user_id = %s
+                   ORDER BY round_number, id""",
+                (session_id, user["id"]),
+            )
+            msg_cols = [d[0] for d in cur.description]
+            msg_rows = await cur.fetchall()
+            session["messages"] = [_row_to_message(r, msg_cols) for r in msg_rows]
+
+            # Include callback info if any
+            await cur.execute(
+                """SELECT phone_number, product_name AS cb_product, status AS cb_status,
+                          negotiation_status, final_price AS cb_final_price, created_at AS cb_created_at
+                   FROM callback_requests
+                   WHERE session_id = %s AND user_id = %s
+                   ORDER BY created_at DESC LIMIT 1""",
+                (session_id, user["id"]),
+            )
+            cb_cols = [d[0] for d in cur.description]
+            cb_row = await cur.fetchone()
+            if cb_row:
+                cb = dict(zip(cb_cols, cb_row))
+                if cb.get("cb_created_at") and isinstance(cb["cb_created_at"], datetime):
+                    cb["cb_created_at"] = cb["cb_created_at"].isoformat()
+                if cb.get("cb_final_price") is not None:
+                    cb["cb_final_price"] = float(cb["cb_final_price"])
+                session["callback"] = cb
+            else:
+                session["callback"] = None
+
+    return session
+
 
 @router.post("/{session_id}/messages")
 async def save_message(session_id: int, body: SaveMessageRequest, user=Depends(get_current_user)):
@@ -310,18 +333,27 @@ async def dashboard_summary(user=Depends(get_current_user)):
 
             # Recent closed deals (last 20)
             await cur.execute(
-                """SELECT id, product_name, status, base_price, final_price,
-                          rounds_used, final_decision, deal_closed,
-                          buyer_last_offer, seller_last_offer,
-                          created_at, closed_at
-                   FROM chat_sessions
-                   WHERE user_id = %s AND status != 'active'
-                   ORDER BY closed_at DESC LIMIT 20""",
+                """SELECT cs.id, cs.product_name, cs.status, cs.base_price, cs.final_price,
+                          cs.rounds_used, cs.final_decision, cs.deal_closed,
+                          cs.buyer_last_offer, cs.seller_last_offer,
+                          cs.created_at, cs.closed_at,
+                          cr.phone_number AS callback_phone,
+                          cr.created_at AS callback_requested_at
+                   FROM chat_sessions cs
+                   LEFT JOIN callback_requests cr ON cr.session_id = cs.id AND cr.user_id = cs.user_id
+                   WHERE cs.user_id = %s AND cs.status != 'active'
+                   ORDER BY cs.closed_at DESC LIMIT 20""",
                 (uid,),
             )
             cols2 = [d[0] for d in cur.description]
             rows2 = await cur.fetchall()
-            closed_sessions = [_row_to_session(r, cols2) for r in rows2]
+            closed_sessions = []
+            for r in rows2:
+                s = _row_to_session(r, cols2)
+                # Ensure callback fields are serialized
+                if s.get("callback_requested_at") and isinstance(s["callback_requested_at"], datetime):
+                    s["callback_requested_at"] = s["callback_requested_at"].isoformat()
+                closed_sessions.append(s)
 
             # Active sessions
             await cur.execute(

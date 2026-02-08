@@ -3,11 +3,11 @@ import {
   CheckCircle, XCircle, Clock,
   DollarSign, RefreshCw, Download, Eye, X, MessageSquare, ArrowUpRight,
   ArrowDownRight, Activity, Loader2, ChevronDown, ChevronUp,
-  Search
+  Search, Phone
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/NeoCard';
-import { getDashboardSummary, exportSession } from '../lib/api';
+import { getDashboardSummary, exportSession, getCallbackRequests } from '../lib/api';
 
 const STATUS_CONFIG = {
   accepted:    { label: 'Accepted',    color: 'bg-neo-teal',    text: 'text-neo-cream', icon: CheckCircle  },
@@ -32,6 +32,9 @@ export default function JuryDashboard() {
   const [chatModal, setChatModal] = useState(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [exporting, setExporting] = useState({});
+  const [callbacksModal, setCallbacksModal] = useState(false);
+  const [allCallbacks, setAllCallbacks] = useState([]);
+  const [callbacksLoading, setCallbacksLoading] = useState(false);
 
   const fetchDashboard = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
@@ -72,11 +75,19 @@ export default function JuryDashboard() {
       let blob, filename;
       if (format === 'csv') {
         const msgs = session.messages || [];
+        const cb = session.callback;
         const header = 'Round,Buyer Message,Bot Reply,Offered Price,Counter Price,Decision,Time\n';
         const rows = msgs.map(m =>
           `${m.round_number},"${(m.user_message || '').replace(/"/g, '""')}","${(m.bot_reply || '').replace(/"/g, '""')}",${m.offered_price || ''},${m.counter_price || ''},${m.decision || ''},${m.created_at || ''}`
         ).join('\n');
-        blob = new Blob([header + rows], { type: 'text/csv' });
+        let csvContent = header + rows;
+        if (cb?.phone_number) {
+          csvContent += '\n\nCallback Details\n';
+          csvContent += `Phone Number,"${cb.phone_number}"\n`;
+          csvContent += `Status,"${cb.negotiation_status || ''}"\n`;
+          csvContent += `Requested At,"${cb.cb_created_at || ''}"\n`;
+        }
+        blob = new Blob([csvContent], { type: 'text/csv' });
         filename = `session-${sessionId}.csv`;
       } else {
         blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
@@ -208,15 +219,26 @@ export default function JuryDashboard() {
                   <p className="text-[10px] text-neo-navy/40 uppercase font-bold">Best Deal</p>
                 </div>
               </div>
-              <div className="bg-white border-[3px] border-neo-navy p-4 flex items-center gap-3">
-                <MessageSquare className="w-6 h-6 text-neo-navy/40 flex-shrink-0" />
+              <button
+                onClick={async () => {
+                  setCallbacksModal(true);
+                  setCallbacksLoading(true);
+                  try {
+                    const data = await getCallbackRequests();
+                    setAllCallbacks(data);
+                  } catch { setAllCallbacks([]); }
+                  setCallbacksLoading(false);
+                }}
+                className="bg-neo-orange border-[3px] border-neo-navy p-4 flex items-center gap-3 w-full text-left hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer group"
+              >
+                <Phone className="w-6 h-6 text-neo-navy flex-shrink-0 group-hover:scale-110 transition-transform" />
                 <div>
                   <p className="text-lg sm:text-xl font-heading font-bold text-neo-navy">
-                    {(s.avg_rounds || 0).toFixed(1)} <span className="text-xs font-normal text-neo-navy/40">rounds avg</span>
+                    Callback Requests
                   </p>
-                  <p className="text-[10px] text-neo-navy/40 uppercase font-bold">Avg Negotiation</p>
+                  <p className="text-[10px] text-neo-navy/60 uppercase font-bold">Click to view all</p>
                 </div>
-              </div>
+              </button>
             </div>
 
             {/* ── Negotiation History ──────────────────────── */}
@@ -256,7 +278,7 @@ export default function JuryDashboard() {
 
               <div className="bg-white border-[3px] border-neo-navy overflow-hidden">
                 {/* Table header */}
-                <div className="bg-neo-navy grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_0.8fr] text-[10px] font-bold uppercase tracking-wider text-neo-cream/50">
+                <div className="bg-neo-navy grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_1fr] text-[10px] font-bold uppercase tracking-wider text-neo-cream/50">
                   {[
                     { field: 'product_name', label: 'Product' },
                     { field: 'status',       label: 'Status'  },
@@ -292,7 +314,7 @@ export default function JuryDashboard() {
                     return (
                       <div
                         key={session.id}
-                        className={`grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_0.8fr] items-center text-xs border-b last:border-b-0 border-neo-navy/5 ${
+                        className={`grid grid-cols-[2fr_0.8fr_1fr_1fr_0.6fr_1fr] items-center text-xs border-b last:border-b-0 border-neo-navy/5 ${
                           idx % 2 === 0 ? 'bg-white' : 'bg-neo-cream/30'
                         } hover:bg-neo-orange/5 transition-colors`}
                       >
@@ -409,6 +431,23 @@ export default function JuryDashboard() {
                   </div>
                 </div>
 
+                {/* Callback banner (if present) */}
+                {chatModal.callback && chatModal.callback.phone_number && (
+                  <div className="bg-neo-teal/10 border-b-[2px] border-neo-teal/30 px-4 py-2 flex items-center justify-between flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-3.5 h-3.5 text-neo-teal" />
+                      <span className="text-[10px] font-bold uppercase text-neo-teal">Callback Requested</span>
+                    </div>
+                    <a
+                      href={`tel:${chatModal.callback.phone_number}`}
+                      className="flex items-center gap-1 text-[10px] font-bold text-neo-navy font-mono hover:text-neo-teal transition-colors"
+                    >
+                      <Phone className="w-3 h-3" />
+                      {chatModal.callback.phone_number}
+                    </a>
+                  </div>
+                )}
+
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {(!chatModal.messages || chatModal.messages.length === 0) ? (
@@ -474,6 +513,111 @@ export default function JuryDashboard() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── All Callback Requests Modal ──────────────────── */}
+      {callbacksModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setCallbacksModal(false)}>
+          <div className="absolute inset-0 bg-neo-navy/60 backdrop-blur-sm" />
+          <div className="relative bg-neo-cream border-[4px] border-neo-navy w-full max-w-2xl max-h-[85vh] flex flex-col shadow-neo" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="bg-neo-navy p-4 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-neo-teal/20 border-[2px] border-neo-teal flex items-center justify-center">
+                  <Phone className="w-4 h-4 text-neo-teal" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-bold text-neo-cream text-sm">Callback Requests</h3>
+                  <p className="text-[10px] text-neo-cream/40 font-mono">{allCallbacks.length} request{allCallbacks.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <button onClick={() => setCallbacksModal(false)} className="p-2 bg-neo-cream/10 hover:bg-neo-maroon text-neo-cream transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {callbacksLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-8 h-8 animate-spin text-neo-navy" />
+                </div>
+              ) : allCallbacks.length === 0 ? (
+                <div className="text-center py-12">
+                  <Phone className="w-10 h-10 mx-auto mb-3 text-neo-navy/15" />
+                  <p className="font-bold text-neo-navy/40 text-sm">No callback requests yet</p>
+                  <p className="text-[10px] text-neo-navy/25 mt-1">When buyers request a callback, they'll appear here</p>
+                </div>
+              ) : (
+                allCallbacks.map((cb) => (
+                  <div key={cb.id} className="bg-white border-[3px] border-neo-navy/10 hover:border-neo-teal/50 transition-colors">
+                    <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                      {/* Phone + Call */}
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="w-10 h-10 bg-neo-teal/10 border-[2px] border-neo-teal flex items-center justify-center flex-shrink-0">
+                          <Phone className="w-4 h-4 text-neo-teal" />
+                        </div>
+                        <div>
+                          <p className="font-heading font-bold text-neo-navy text-sm tracking-wide">{cb.phone_number}</p>
+                          <a
+                            href={`tel:${cb.phone_number}`}
+                            className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-bold uppercase text-neo-teal hover:text-neo-navy transition-colors"
+                          >
+                            <Phone className="w-2.5 h-2.5" />
+                            Call Now
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                        <div>
+                          <p className="uppercase font-bold text-neo-navy/40">Product</p>
+                          <p className="font-bold text-neo-navy truncate">{cb.product_name || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase font-bold text-neo-navy/40">Status</p>
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                            (STATUS_CONFIG[cb.negotiation_status] || STATUS_CONFIG.expired).color
+                          } ${(STATUS_CONFIG[cb.negotiation_status] || STATUS_CONFIG.expired).text}`}>
+                            {cb.negotiation_status || cb.status || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="uppercase font-bold text-neo-navy/40">Final Price</p>
+                          <p className="font-mono font-bold text-neo-teal">{cb.final_price ? `₹${Number(cb.final_price).toLocaleString('en-IN')}` : '—'}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase font-bold text-neo-navy/40">Requested</p>
+                          <p className="font-mono text-neo-navy/60">{cb.created_at ? new Date(cb.created_at).toLocaleDateString() : '—'}</p>
+                        </div>
+                      </div>
+
+                      {/* View Chat */}
+                      <button
+                        onClick={() => { handleViewChat(cb.session_id); setCallbacksModal(false); }}
+                        className="p-1.5 border-[2px] border-neo-navy/10 hover:border-neo-teal hover:bg-neo-teal/10 transition-colors flex-shrink-0 self-start"
+                        title="View Chat"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-neo-navy/30 hover:text-neo-teal" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-neo-navy/5 border-t-[2px] border-neo-navy/10 px-4 py-3 flex items-center justify-end flex-shrink-0">
+              <button
+                onClick={() => setCallbacksModal(false)}
+                className="text-[10px] font-bold uppercase text-neo-cream px-4 py-1.5 bg-neo-navy border-[2px] border-neo-navy hover:bg-neo-navy/80 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -298,6 +298,15 @@ export async function exportSession(sessionId) {
   return response.json();
 }
 
+export async function getCallbackRequests() {
+  const token = getAuthToken();
+  const response = await fetch(`${AUTH_API_URL}/api/v1/chat-sessions/callback-requests`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error('Failed to fetch callback requests');
+  return response.json();
+}
+
 // ============================================================
 // Email Settings API
 // ============================================================

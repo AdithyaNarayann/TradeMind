@@ -106,6 +106,8 @@ Walk-away price
 
 These values may evolve only within allowed bounds
 
+The opening offer MUST always be the base (listed) price — the seller never starts below asking price
+
 Concessions are released incrementally, not upfront
 
 Quantity Logic
