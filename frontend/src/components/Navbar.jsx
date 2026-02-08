@@ -59,8 +59,8 @@ export default function Navbar() {
   const userInitials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : user?.email
-    ? user.email[0].toUpperCase()
-    : 'U';
+      ? user.email[0].toUpperCase()
+      : 'U';
 
   return (
     <nav className="bg-neo-cream border-b-[3px] border-neo-navy">
