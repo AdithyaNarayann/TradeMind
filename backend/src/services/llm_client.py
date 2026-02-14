@@ -43,6 +43,7 @@ class OpenRouterClient:
     All pricing decisions are made by the deterministic pricing agent.
     """
     
+    
     BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
     
     def __init__(self):
