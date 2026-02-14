@@ -18,6 +18,7 @@ from ..config import get_settings
 logger = structlog.get_logger(__name__)
 
 
+
 @dataclass
 class LLMResponse:
     """Structured response from LLM."""
@@ -41,6 +42,9 @@ class OpenRouterClient:
     We use it ONLY for generating natural conversation text.
     All pricing decisions are made by the deterministic pricing agent.
     """
+    
+    
+    BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
     
     def __init__(self):
         settings = get_settings()
@@ -112,6 +116,7 @@ class OpenRouterClient:
                 tokens=tokens,
                 content_length=len(content),
             )
+            
             
             return LLMResponse(
                 content=content,
