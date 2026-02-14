@@ -16,6 +16,9 @@ TradeMind is an AI-powered negotiation platform for e-commerce, built with a mod
 
 ## Project Structure
 
+
+
+
 ```
 Negotiation-Bot/
   backend/
