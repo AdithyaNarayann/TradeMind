@@ -117,6 +117,7 @@ class OpenRouterClient:
                 content_length=len(content),
             )
             
+            
             return LLMResponse(
                 content=content,
                 model=model_used,
