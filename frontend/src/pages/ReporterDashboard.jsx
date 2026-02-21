@@ -11,7 +11,7 @@ import { useI18n } from '../context/I18nContext';
 import { useSession } from '../context/SessionContext';
 import { getReporterStats, getReporterReports } from '../lib/api';
 
-export default function ReporterHome() {
+export default function ReporterDashboard() {
   const { t } = useI18n();
   const { session, sessionId, walletAddress, createNewSession, loading: sessionLoading } = useSession();
   const navigate = useNavigate();

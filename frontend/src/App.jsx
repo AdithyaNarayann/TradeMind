@@ -6,13 +6,13 @@ import TranslationLoadingOverlay from './components/TranslationLoadingOverlay';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Landing from './pages/Landing';
-import ReporterHome from './pages/ReporterHome';
-import Report from './pages/Report';
-import SilentReport from './pages/SilentReport';
-import WalletDashboard from './pages/WalletDashboard';
-import Authority from './pages/Authority';
-import JuryDashboard from './pages/JuryDashboard';
-import ReputationPage from './pages/ReputationPage';
+import ReporterDashboard from './pages/ReporterDashboard';
+import ReportSubmission from './pages/ReportSubmission';
+import SilentReportComposer from './pages/SilentReportComposer';
+import ApiReference from './pages/ApiReference';
+import BusinessAnalytics from './pages/BusinessAnalytics';
+import NegotiationDashboard from './pages/NegotiationDashboard';
+import ReputationDashboard from './pages/ReputationDashboard';
 import ProductCatalog from './pages/ProductCatalog';
 import ApiAccess from './pages/ApiAccess';
 import EmailSettings from './pages/EmailSettings';
@@ -37,23 +37,23 @@ function App() {
             <Route path="/" element={<Landing />} />
 
             {/* Reporter Routes */}
-            <Route path="/reporter" element={<ReporterHome />} />
-            <Route path="/reporter/report" element={<Report />} />
-            <Route path="/reporter/silent" element={<SilentReport />} />
-            <Route path="/r/:sessionId" element={<Report />} />
-            <Route path="/report/:sessionId" element={<Report />} />
+            <Route path="/reporter" element={<ReporterDashboard />} />
+            <Route path="/reporter/report" element={<ReportSubmission />} />
+            <Route path="/reporter/silent" element={<SilentReportComposer />} />
+            <Route path="/r/:sessionId" element={<ReportSubmission />} />
+            <Route path="/report/:sessionId" element={<ReportSubmission />} />
 
             {/* Wallet */}
-            <Route path="/wallet" element={<WalletDashboard />} />
+            <Route path="/wallet" element={<ApiReference />} />
 
             {/* Authority */}
-            <Route path="/authority" element={<Authority />} />
+            <Route path="/authority" element={<BusinessAnalytics />} />
 
             {/* Jury */}
-            <Route path="/jury" element={<JuryDashboard />} />
+            <Route path="/jury" element={<NegotiationDashboard />} />
 
             {/* Reputation */}
-            <Route path="/reputation" element={<ReputationPage />} />
+            <Route path="/reputation" element={<ReputationDashboard />} />
 
             {/* Products (requires login) */}
             <Route path="/products" element={<ProtectedRoute><ProductCatalog /></ProtectedRoute>} />

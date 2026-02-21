@@ -17,7 +17,7 @@ const STATUS_CONFIG = {
   walked_away: { label: 'Walked Away', color: 'bg-neo-navy/30', text: 'text-neo-navy',  icon: ArrowUpRight },
 };
 
-export default function JuryDashboard() {
+export default function NegotiationDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

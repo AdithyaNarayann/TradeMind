@@ -12,7 +12,7 @@ import { encryptWithNaCl, encryptFile } from '../lib/encryption';
 import { checkSession, submitReport } from '../lib/api';
 import { useI18n } from '../context/I18nContext';
 
-export default function Report() {
+export default function ReportSubmission() {
   const { t } = useI18n();
   const { sessionId: storedSessionId, walletAddress: storedWallet, saveSession } = useSession();
   const { sessionId: paramSessionId } = useParams();

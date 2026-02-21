@@ -125,7 +125,7 @@ function FeatureCard({ icon: Icon, title, description, color = 'bg-neo-teal' }) 
 // =================================================================
 // MAIN COMPONENT
 // =================================================================
-export default function WalletDashboard() {
+export default function ApiReference() {
   const [activeSection, setActiveSection] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const sectionRefs = useRef({});

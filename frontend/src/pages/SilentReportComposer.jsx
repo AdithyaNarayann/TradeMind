@@ -7,7 +7,7 @@ import NeoButton from '../components/NeoButton';
 import { useI18n } from '../context/I18nContext';
 import { useSession } from '../context/SessionContext';
 
-export default function SilentReport() {
+export default function SilentReportComposer() {
   const { t } = useI18n();
 
   // Morse-like patterns for categories

@@ -8,7 +8,7 @@ import { useI18n } from '../context/I18nContext';
 import { useSession } from '../context/SessionContext';
 import { getReputationData } from '../lib/api';
 
-export default function ReputationPage() {
+export default function ReputationDashboard() {
   const { t } = useI18n();
   const { walletAddress, loading: sessionLoading } = useSession();
   const navigate = useNavigate();

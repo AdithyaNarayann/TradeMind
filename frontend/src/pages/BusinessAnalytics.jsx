@@ -56,7 +56,7 @@ const InputField = ({ label, value, onChange, icon: Icon, placeholder, type = 'n
   </div>
 );
 
-export default function Authority() {
+export default function BusinessAnalytics() {
   const { t } = useI18n();
 
   // ─── State ───────────────────────────────────────────────────
