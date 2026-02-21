@@ -24,7 +24,7 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Run the server
-python -m src.server
+python -m app.server
 ```
 
 The API will be available at `http://localhost:8000`
