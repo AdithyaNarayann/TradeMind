@@ -68,7 +68,7 @@ Negotiation-Bot/
   ```
 - Start the server:
   ```
-  uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+  uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
   ```
 
 ### 2. Frontend
@@ -113,7 +113,7 @@ See `frontend/src/pages/ApiAccess.jsx` for a full endpoint reference and code sa
 
 - Backend can be deployed on Railway, Render, or any FastAPI-compatible host
 - Frontend can be deployed on Vercel, Netlify, or any static host
-- Set CORS origins in `backend/src/app.py` as needed for production
+- Set CORS origins in `backend/app/main.py` as needed for production
 
 ## Design System
 
