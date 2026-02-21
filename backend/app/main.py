@@ -4,15 +4,17 @@ Negotiation Engine - FastAPI Application
 This is the main application factory that creates and configures
 the FastAPI application with all routes, middleware, and error handlers.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
+import time
 import structlog
 
 from .core.config import get_settings
+from .core.logging import setup_logging
 from .api import (
     router,
     limiter,
@@ -33,6 +35,7 @@ if _ba_path not in sys.path:
 from competitive_intelligence import competitive_router
 
 
+setup_logging()
 settings = get_settings()
 logger = structlog.get_logger(__name__)
 
@@ -91,6 +94,35 @@ def create_app() -> FastAPI:
     
     # Add rate limiter to app state
     app.state.limiter = limiter
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            client_ip = request.client.host if request.client else "unknown"
+            logger.exception(
+                "request_failed",
+                method=request.method,
+                path=request.url.path,
+                duration_ms=duration_ms,
+                client_ip=client_ip,
+            )
+            raise
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        client_ip = request.client.host if request.client else "unknown"
+        logger.info(
+            "request_completed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            client_ip=client_ip,
+        )
+        return response
     
     # ==========================================================================
     # Middleware (order matters - last added = first executed)
