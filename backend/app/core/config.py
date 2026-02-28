@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     
     # Environment
     env: Literal["development", "staging", "production"] = "development"
-    debug: bool = True
+    debug: bool = False  # SECURITY: default to False, explicitly set True in dev .env
     log_level: str = "INFO"
     
     # Server
@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     # Session Management
     session_ttl_seconds: int = 3600  # 1 hour
     max_sessions_per_client: int = 10
+    
+    # Security
+    jwt_secret: str = ""  # REQUIRED — set in .env
+    encryption_key: str = ""  # For encrypting PII at rest
+    allowed_origins: str = "http://localhost:5173"  # Comma-separated origins
+    
+    # MySQL Database
+    mysql_host: str = "127.0.0.1"
+    mysql_port: int = 3306
+    mysql_user: str = ""  # REQUIRED — set in .env
+    mysql_password: str = ""  # REQUIRED — set in .env
+    mysql_db: str = "trademind"
     
     # OpenRouter LLM
     openrouter_api_key: str = ""  # Get from https://openrouter.ai/keys

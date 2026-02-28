@@ -8,18 +8,64 @@ GET  /api/v1/auth/me        → return current user from JWT
 import bcrypt
 import jwt
 import datetime
-from fastapi import APIRouter, HTTPException, Depends
+import os
+import time
+import hashlib
+from collections import defaultdict
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, field_validator
 import re
+import structlog
 
 from ...infrastructure.database.session import get_conn
+from ...core.config import get_settings
+from ..middleware import limiter
+
+_settings = get_settings()
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
-JWT_SECRET = "trademind-secret-key-change-in-production"
+# JWT config from environment — NEVER hardcode secrets
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "FATAL: JWT_SECRET environment variable is not set. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = 24
+JWT_EXPIRE_HOURS = 1  # Shortened from 24h to 1h for security
+
+# ── Account lockout tracking (in-memory) ──────────────────────────
+_failed_attempts: dict = defaultdict(list)  # key -> [timestamps]
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_WINDOW_SECONDS = 900  # 15 minutes
+
+
+def _check_lockout(key: str) -> None:
+    """Raise 429 if too many failed attempts in the lockout window."""
+    now = time.time()
+    # Prune old entries
+    _failed_attempts[key] = [
+        t for t in _failed_attempts[key]
+        if now - t < LOCKOUT_WINDOW_SECONDS
+    ]
+    if len(_failed_attempts[key]) >= MAX_FAILED_ATTEMPTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Try again in 15 minutes.",
+        )
+
+
+def _record_failure(key: str) -> None:
+    """Record a failed login attempt."""
+    _failed_attempts[key].append(time.time())
+
+
+def _clear_failures(key: str) -> None:
+    """Clear failed attempts on successful login."""
+    _failed_attempts.pop(key, None)
 
 security = HTTPBearer(auto_error=False)
 
@@ -41,8 +87,14 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strong(cls, v):
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", v):
+            raise ValueError("Password must contain at least one special character")
         return v
 
 
@@ -133,7 +185,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # ── Routes ─────────────────────────────────────────────────────────
 
 @router.post("/register", response_model=AuthResponse)
-async def register(body: RegisterRequest):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterRequest):
     """Create a new user account."""
     async with get_conn() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -159,8 +212,13 @@ async def register(body: RegisterRequest):
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest):
+@limiter.limit("5/minute")
+async def login(request: Request, body: LoginRequest):
     """Authenticate and return a JWT."""
+    # Check lockout before attempting login
+    lockout_key = hashlib.sha256(body.email.lower().encode()).hexdigest()[:16]
+    _check_lockout(lockout_key)
+
     async with get_conn() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
@@ -170,8 +228,11 @@ async def login(body: LoginRequest):
             user = await cur.fetchone()
 
     if not user or not _verify_password(body.password, user["password_hash"]):
+        _record_failure(lockout_key)
+        logger.warning("login_failed", email_hash=lockout_key)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    _clear_failures(lockout_key)
     token = _create_token(user["id"], user["email"], user["full_name"])
     return AuthResponse(
         token=token,

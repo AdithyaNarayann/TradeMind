@@ -5,11 +5,20 @@ import aiomysql
 import os
 from contextlib import asynccontextmanager
 
+# SECURITY: No default passwords — all must come from env vars
 MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "1234")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER", "")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DB = os.getenv("MYSQL_DB", "trademind")
+
+if not MYSQL_USER or not MYSQL_PASSWORD:
+    import warnings
+    warnings.warn(
+        "MYSQL_USER and MYSQL_PASSWORD should be set via environment variables. "
+        "Do not use default/hardcoded credentials in production.",
+        stacklevel=2,
+    )
 
 _pool: aiomysql.Pool | None = None
 
