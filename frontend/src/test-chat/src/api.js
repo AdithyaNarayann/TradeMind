@@ -158,12 +158,15 @@ const DEFAULT_SESSION_CONFIG = {
 
 // Create a new negotiation session
 export async function createSession(config = null) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
         const body = config || DEFAULT_SESSION_CONFIG;
         const response = await fetch(`${API_BASE}/sessions`, {
             method: 'POST',
             headers: _authHeaders(),
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -173,8 +176,11 @@ export async function createSession(config = null) {
 
         return await response.json();
     } catch (error) {
+        if (error.name === 'AbortError') throw new Error('Request timed out. Please try again.');
         console.error('Failed to create session:', error);
         throw error;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -207,13 +213,16 @@ export async function submitOffer(sessionId, offeredPrice, message = null, offer
 
 // Send a free-text chat message (AI understands intent)
 export async function sendChat(sessionId, message) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS * 2); // Double timeout for LLM
     try {
         const body = { message };
 
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat`, {
             method: 'POST',
             headers: _authHeaders(),
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -223,8 +232,11 @@ export async function sendChat(sessionId, message) {
 
         return await response.json();
     } catch (error) {
+        if (error.name === 'AbortError') throw new Error('AI response timed out. Please try again.');
         console.error('Failed to send chat:', error);
         throw error;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 

@@ -20,6 +20,7 @@ from ...services.email_service import template_deal_notification, template_new_s
 import asyncio
 import structlog
 _email_logger = structlog.get_logger("email_notifications")
+_session_logger = structlog.get_logger("chat_sessions")
 
 router = APIRouter(prefix="/api/v1/chat-sessions", tags=["Chat Sessions"])
 

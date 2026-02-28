@@ -132,8 +132,8 @@ def _create_token(user_id: int, email: str, full_name: str) -> str:
         "sub": str(user_id),
         "email": email,
         "full_name": full_name,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXPIRE_HOURS),
-        "iat": datetime.datetime.utcnow(),
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=JWT_EXPIRE_HOURS),
+        "iat": datetime.datetime.now(datetime.timezone.utc),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 

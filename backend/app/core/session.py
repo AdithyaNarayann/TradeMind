@@ -5,7 +5,7 @@ Manages negotiation session lifecycle and state.
 Uses in-memory storage by default, can be swapped with Redis.
 """
 from uuid import UUID, uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -49,8 +49,8 @@ class NegotiationSession:
     # Metadata
     buyer_id: Optional[str] = None
     client_ip: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     closed_at: Optional[datetime] = None
 
     # Audit trail
@@ -144,7 +144,7 @@ class SessionManager:
 
     def update_session(self, session: NegotiationSession) -> None:
         """Update an existing session."""
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         self._sessions[session.session_id] = session
 
     def close_session(
@@ -160,8 +160,8 @@ class SessionManager:
             return None
 
         session.status = status
-        session.closed_at = datetime.utcnow()
-        session.updated_at = datetime.utcnow()
+        session.closed_at = datetime.now(timezone.utc)
+        session.updated_at = datetime.now(timezone.utc)
         session.final_price = final_price
         session.total_profit = total_profit
 
