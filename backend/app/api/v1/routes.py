@@ -24,6 +24,7 @@ from ...models import (
 )
 from ...core import get_engine, NegotiationEngine
 from ..middleware import limiter
+from .auth_routes import get_current_user
 
 
 router = APIRouter(prefix="/api/v1/negotiate", tags=["Negotiation"])
@@ -66,6 +67,7 @@ async def create_session(
     request: Request,
     body: CreateSessionRequest,
     engine: NegotiationEngine = Depends(get_engine),
+    user=Depends(get_current_user),
 ) -> CreateSessionResponse:
     """Create a new negotiation session."""
     client_ip = get_client_ip(request)
@@ -89,6 +91,7 @@ async def get_session(
     request: Request,
     session_id: UUID,
     engine: NegotiationEngine = Depends(get_engine),
+    user=Depends(get_current_user),
 ) -> SessionSummary:
     """Get session summary by ID."""
     summary = engine.get_session(session_id)
@@ -114,6 +117,7 @@ async def end_session(
     session_id: UUID,
     reason: Optional[str] = "buyer_walked",
     engine: NegotiationEngine = Depends(get_engine),
+    user=Depends(get_current_user),
 ) -> SessionSummary:
     """End a negotiation session."""
     try:
@@ -149,6 +153,7 @@ async def submit_offer(
     session_id: UUID,
     body: BuyerOffer,
     engine: NegotiationEngine = Depends(get_engine),
+    user=Depends(get_current_user),
 ) -> NegotiationTurnResponse:
     """Process a negotiation turn with buyer's offer."""
     try:
@@ -188,6 +193,7 @@ async def chat_message(
     session_id: UUID,
     body: ChatMessage,
     engine: NegotiationEngine = Depends(get_engine),
+    user=Depends(get_current_user),
 ) -> ChatResponse:
     """Process a free-text chat message."""
     try:

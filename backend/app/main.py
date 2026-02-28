@@ -11,6 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 import time
+import hashlib
 import structlog
 
 from .core.config import get_settings
@@ -102,7 +103,12 @@ def create_app() -> FastAPI:
             response = await call_next(request)
         except Exception:
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
-            client_ip = request.client.host if request.client else "unknown"
+            # SECURITY: Hash client IPs in production to avoid PII in logs
+            raw_ip = request.client.host if request.client else "unknown"
+            client_ip = (
+                hashlib.sha256(raw_ip.encode()).hexdigest()[:12]
+                if settings.env == "production" else raw_ip
+            )
             logger.exception(
                 "request_failed",
                 method=request.method,
@@ -113,7 +119,11 @@ def create_app() -> FastAPI:
             raise
 
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
-        client_ip = request.client.host if request.client else "unknown"
+        raw_ip = request.client.host if request.client else "unknown"
+        client_ip = (
+            hashlib.sha256(raw_ip.encode()).hexdigest()[:12]
+            if settings.env == "production" else raw_ip
+        )
         logger.info(
             "request_completed",
             method=request.method,
@@ -131,13 +141,18 @@ def create_app() -> FastAPI:
     # Error handler middleware
     app.add_middleware(ErrorHandlerMiddleware)
     
-    # CORS middleware
+    # CORS middleware — SECURITY: use configured origins, never wildcard with credentials
+    allowed_origins = [
+        origin.strip()
+        for origin in settings.allowed_origins.split(",")
+        if origin.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
+        allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
     
     # ==========================================================================
