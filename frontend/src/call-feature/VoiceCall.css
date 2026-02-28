@@ -7,247 +7,126 @@
 
 /* ── Overlay entrance ── */
 @keyframes callOverlayIn {
-    from {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
+    from { opacity: 0; transform: scale(0.97); }
+    to   { opacity: 1; transform: scale(1); }
 }
-
 .voice-call-overlay {
-    animation: callOverlayIn 0.3s ease-out;
+    animation: callOverlayIn 0.25s ease-out;
 }
 
 /* ── Pulsing ring for active call ── */
 @keyframes pulseRing {
-    0% {
-        transform: scale(1);
-        opacity: 0.6;
-    }
-
-    50% {
-        transform: scale(1.4);
-        opacity: 0;
-    }
-
-    100% {
-        transform: scale(1);
-        opacity: 0;
-    }
+    0%  { transform: scale(1);   opacity: 0.6; }
+    50% { transform: scale(1.4); opacity: 0; }
+    100%{ transform: scale(1);   opacity: 0; }
 }
-
-.pulse-ring {
-    animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.pulse-ring-delay {
-    animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite 0.5s;
-}
-
-/* ── Waveform bars animation ── */
-@keyframes waveBar {
-
-    0%,
-    100% {
-        height: 12px;
-    }
-
-    50% {
-        height: 32px;
-    }
-}
-
-.wave-bar {
-    display: inline-block;
-    width: 4px;
-    border: 1px solid #001524;
-    border-radius: 2px;
-    animation: waveBar 1.2s ease-in-out infinite;
-}
-
-.wave-bar:nth-child(1) {
-    animation-delay: 0s;
-}
-
-.wave-bar:nth-child(2) {
-    animation-delay: 0.15s;
-}
-
-.wave-bar:nth-child(3) {
-    animation-delay: 0.3s;
-}
-
-.wave-bar:nth-child(4) {
-    animation-delay: 0.45s;
-}
-
-.wave-bar:nth-child(5) {
-    animation-delay: 0.6s;
-}
-
-.wave-bar:nth-child(6) {
-    animation-delay: 0.75s;
-}
-
-.wave-bar:nth-child(7) {
-    animation-delay: 0.9s;
-}
-
-.wave-bar-user {
-    background-color: #FF7D00;
-}
-
-.wave-bar-ai {
-    background-color: #15616D;
-}
-
-.wave-bar-idle {
-    background-color: #001524;
-    opacity: 0.3;
-    animation: none;
-    height: 12px;
-}
+.pulse-ring       { animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.pulse-ring-delay { animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite 0.5s; }
 
 /* ── End call button pulse ── */
 @keyframes endCallPulse {
-
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 rgba(120, 41, 15, 0.4);
-    }
-
-    50% {
-        box-shadow: 0 0 0 12px rgba(120, 41, 15, 0);
-    }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(120, 41, 15, 0.4); }
+    50%      { box-shadow: 0 0 0 12px rgba(120, 41, 15, 0); }
 }
-
 .end-call-btn {
     animation: endCallPulse 2s ease-in-out infinite;
     transition: all 0.2s;
 }
+.end-call-btn:hover  { animation: none; transform: scale(1.1); box-shadow: 4px 4px 0px #001524; }
+.end-call-btn:active { transform: scale(0.95); box-shadow: none; }
 
-.end-call-btn:hover {
-    animation: none;
-    transform: scale(1.1);
-    box-shadow: 4px 4px 0px #001524;
-}
-
-.end-call-btn:active {
-    transform: scale(0.95);
-    box-shadow: none;
-}
-
-/* ── Transcript bubble animation ── */
+/* ── Transcript bubble slide-in ── */
 @keyframes transcriptSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
-
 .transcript-bubble {
     animation: transcriptSlideIn 0.25s ease-out;
 }
 
 /* ── Live indicator blink ── */
 @keyframes liveBlink {
-
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.3;
-    }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
 }
-
-.live-dot {
-    animation: liveBlink 1.5s ease-in-out infinite;
-}
+.live-dot { animation: liveBlink 1.5s ease-in-out infinite; }
 
 /* ── Status text fade ── */
 @keyframes statusFade {
-    0% {
-        opacity: 0;
-        transform: translateY(4px);
-    }
-
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    0%   { opacity: 0; transform: translateY(4px); }
+    100% { opacity: 1; transform: translateY(0); }
 }
-
-.status-text {
-    animation: statusFade 0.3s ease-out;
-}
+.status-text { animation: statusFade 0.3s ease-out; }
 
 /* ── Thinking dots ── */
 @keyframes thinkingDot {
-
-    0%,
-    80%,
-    100% {
-        transform: scale(0.6);
-        opacity: 0.4;
-    }
-
-    40% {
-        transform: scale(1);
-        opacity: 1;
-    }
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40%           { transform: scale(1);   opacity: 1; }
 }
-
 .thinking-dot {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 8px;  height: 8px;
     border-radius: 50%;
     background-color: #15616D;
     margin: 0 3px;
 }
-
-.thinking-dot:nth-child(1) {
-    animation: thinkingDot 1.4s ease-in-out infinite 0s;
-}
-
-.thinking-dot:nth-child(2) {
-    animation: thinkingDot 1.4s ease-in-out infinite 0.2s;
-}
-
-.thinking-dot:nth-child(3) {
-    animation: thinkingDot 1.4s ease-in-out infinite 0.4s;
-}
+.thinking-dot:nth-child(1) { animation: thinkingDot 1.4s ease-in-out infinite 0s; }
+.thinking-dot:nth-child(2) { animation: thinkingDot 1.4s ease-in-out infinite 0.2s; }
+.thinking-dot:nth-child(3) { animation: thinkingDot 1.4s ease-in-out infinite 0.4s; }
 
 /* ── Transcript scroll area ── */
 .call-transcript-scroll {
     scrollbar-width: thin;
     scrollbar-color: #15616D #001524;
 }
+.call-transcript-scroll::-webkit-scrollbar       { width: 6px; }
+.call-transcript-scroll::-webkit-scrollbar-track  { background: #001524; }
+.call-transcript-scroll::-webkit-scrollbar-thumb  { background: #15616D; border-radius: 3px; }
+.call-transcript-scroll::-webkit-scrollbar-thumb:hover { background: #FF7D00; }
 
-.call-transcript-scroll::-webkit-scrollbar {
-    width: 6px;
+/* ── Volume slider ── */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
 }
-
-.call-transcript-scroll::-webkit-scrollbar-track {
-    background: #001524;
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: rgba(255, 236, 209, 0.15);
+    border-radius: 2px;
 }
-
-.call-transcript-scroll::-webkit-scrollbar-thumb {
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
     background: #15616D;
-    border-radius: 3px;
+    border: 2px solid #FFECD1;
+    margin-top: -5px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+    background: #FF7D00;
+}
+input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: rgba(255, 236, 209, 0.15);
+    border-radius: 2px;
+    border: none;
+}
+input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #15616D;
+    border: 2px solid #FFECD1;
+    cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb:hover {
+    background: #FF7D00;
 }
 
-.call-transcript-scroll::-webkit-scrollbar-thumb:hover {
-    background: #FF7D00;
+/* ── Keyboard hint styling ── */
+kbd {
+    font-family: 'Inter', monospace;
+    font-size: 10px;
 }
