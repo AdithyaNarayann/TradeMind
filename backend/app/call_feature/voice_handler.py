@@ -36,7 +36,7 @@ settings = get_settings()
 MAX_AUDIO_CHUNK_B64 = 90_000
 
 # Silence timeout: auto-flush STT if no audio received for this duration
-SILENCE_TIMEOUT_S = 2.5
+SILENCE_TIMEOUT_S = 1.5
 
 # Split AI text into sentences for streaming TTS
 _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+|(?<=\n)')
@@ -259,7 +259,11 @@ class VoiceCallHandler:
         try:
             session_uuid = UUID(self.session_id)
             chat_msg = ChatMessage(message=text)
-            response = self.engine.process_chat(session_uuid, chat_msg)
+            # Run synchronous LLM call in thread executor to not block event loop
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None, self.engine.process_chat, session_uuid, chat_msg
+            )
 
             ai_text = response.message
             if not ai_text:
@@ -367,6 +371,7 @@ class VoiceCallHandler:
                     "type": "ai_audio",
                     "data": chunk["audio"],
                     "content_type": chunk.get("content_type", "audio/wav"),
+                    "sample_rate": 24000,
                 })
             elif chunk["type"] == "completion":
                 break
@@ -386,6 +391,7 @@ class VoiceCallHandler:
                 "type": "ai_audio",
                 "data": audio_b64,
                 "content_type": "audio/wav",
+                "sample_rate": 24000,
             })
 
     async def _handle_interrupt(self):

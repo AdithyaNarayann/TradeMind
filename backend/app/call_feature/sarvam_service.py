@@ -192,6 +192,8 @@ class SarvamTTSStream:
                 "data": {
                     "target_language_code": self.language,
                     "speaker": self.speaker.lower(),
+                    "speech_sample_rate": 24000,
+                    "enable_preprocessing": False,
                 }
             })
             await self._ws.send(config_msg)

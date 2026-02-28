@@ -48,51 +48,44 @@ function pcmToBase64(pcmData) {
 }
 
 /** Decode base64 audio to AudioBuffer for playback. */
-async function decodeBase64Audio(audioCtx, base64Audio) {
+async function decodeBase64Audio(audioCtx, base64Audio, sampleRate = 24000) {
     const binaryStr = atob(base64Audio);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
         bytes[i] = binaryStr.charCodeAt(i);
     }
-    try {
-        return await audioCtx.decodeAudioData(bytes.buffer.slice(0));
-    } catch {
-        // Fallback: wrap raw PCM in WAV header
-        const wavBuffer = wrapPCMinWAV(bytes, 24000);
-        return await audioCtx.decodeAudioData(wavBuffer);
+
+    // Check if data has a WAV/RIFF header
+    const hasWavHeader = bytes.length > 44 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46; // "RIFF"
+
+    if (hasWavHeader) {
+        try {
+            return await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+        } catch {
+            // WAV header corrupt — strip header and treat as raw PCM
+            const pcmBytes = bytes.slice(44);
+            return rawPCMtoAudioBuffer(audioCtx, pcmBytes, sampleRate);
+        }
     }
+
+    // Raw PCM data — create AudioBuffer directly (most reliable)
+    return rawPCMtoAudioBuffer(audioCtx, bytes, sampleRate);
 }
 
-/** Wrap raw PCM bytes in a WAV header. */
-function wrapPCMinWAV(pcmBytes, sampleRate = 24000) {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-    const blockAlign = numChannels * (bitsPerSample / 8);
-    const dataSize = pcmBytes.length;
-    const headerSize = 44;
-    const buffer = new ArrayBuffer(headerSize + dataSize);
-    const view = new DataView(buffer);
+/** Convert raw PCM Int16 bytes to AudioBuffer at the correct sample rate. */
+function rawPCMtoAudioBuffer(audioCtx, pcmBytes, sampleRate) {
+    // PCM is signed 16-bit little-endian mono
+    const numSamples = Math.floor(pcmBytes.length / 2);
+    const audioBuffer = audioCtx.createBuffer(1, numSamples, sampleRate);
+    const channelData = audioBuffer.getChannelData(0);
+    const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
 
-    const writeStr = (offset, str) => {
-        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-    };
-
-    writeStr(0, 'RIFF');
-    view.setUint32(4, 36 + dataSize, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeStr(36, 'data');
-    view.setUint32(40, dataSize, true);
-    new Uint8Array(buffer).set(pcmBytes, headerSize);
-    return buffer;
+    for (let i = 0; i < numSamples; i++) {
+        const int16 = view.getInt16(i * 2, true); // little-endian
+        channelData[i] = int16 / 32768; // normalize to -1..1
+    }
+    return audioBuffer;
 }
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -454,7 +447,7 @@ export default function useVoiceCall({ sessionId }) {
                 break;
 
             case 'ai_audio':
-                queueAudioPlayback(msg.data, msg.content_type);
+                queueAudioPlayback(msg.data, msg.content_type, msg.sample_rate || 24000);
                 break;
 
             case 'ai_audio_end':
@@ -486,12 +479,12 @@ export default function useVoiceCall({ sessionId }) {
     // ────────────────────────────────────────────────────────────────
     // Audio playback with GainNode + AnalyserNode
     // ────────────────────────────────────────────────────────────────
-    const queueAudioPlayback = useCallback((base64Audio, contentType) => {
+    const queueAudioPlayback = useCallback((base64Audio, contentType, sampleRate = 24000) => {
         // Memory guard: cap queue
         if (audioQueueRef.current.length >= MAX_AUDIO_QUEUE) {
             audioQueueRef.current.shift(); // Drop oldest
         }
-        audioQueueRef.current.push({ base64Audio, contentType });
+        audioQueueRef.current.push({ base64Audio, contentType, sampleRate });
         if (!isPlayingRef.current) playNextAudio();
     }, []);
 
@@ -503,7 +496,7 @@ export default function useVoiceCall({ sessionId }) {
         }
 
         isPlayingRef.current = true;
-        const { base64Audio } = audioQueueRef.current.shift();
+        const { base64Audio, sampleRate } = audioQueueRef.current.shift();
 
         try {
             if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
@@ -531,7 +524,7 @@ export default function useVoiceCall({ sessionId }) {
                 await playbackCtxRef.current.resume();
             }
 
-            const audioBuffer = await decodeBase64Audio(playbackCtxRef.current, base64Audio);
+            const audioBuffer = await decodeBase64Audio(playbackCtxRef.current, base64Audio, sampleRate || 24000);
             const source = playbackCtxRef.current.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(gainNodeRef.current);
