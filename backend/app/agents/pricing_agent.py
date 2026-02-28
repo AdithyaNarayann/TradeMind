@@ -103,15 +103,18 @@ class PricingStrategyAgent:
         offered = buyer_offer.offered_price
         quantity = buyer_offer.offered_quantity or inventory.requested_quantity
 
-        # ─── DYNAMIC ACCEPTANCE: proximity to our current counter ────────
-        # Rounds 1-4: accept only if buyer is within $3 of our counter
-        # Rounds 5+:  threshold widens progressively (buyer wore us down)
+        # ─── DYNAMIC ACCEPTANCE: percentage-based proximity ────────────
+        # Uses a % of our current offer instead of flat $, so it works
+        # correctly for both $20 and $2000 products.
+        # Rounds 1-4: accept within 3% of our counter
+        # Rounds 5+:  widens by 5% per round (buyer wore us down, but capped at 30%)
         round_num = state.current_round
         if round_num <= 4:
-            acceptance_threshold = Decimal("3")
+            acceptance_pct = Decimal("0.03")  # 3%
         else:
-            # Widens by $5 per round after round 4
-            acceptance_threshold = Decimal("3") + Decimal(str(round_num - 4)) * Decimal("5")
+            pct = Decimal("0.03") + Decimal(str(round_num - 4)) * Decimal("0.05")
+            acceptance_pct = min(pct, Decimal("0.30"))  # Cap at 30%
+        acceptance_threshold = (state.current_offer * acceptance_pct).quantize(Decimal("0.01"))
 
         # Accept if buyer's offer is close enough to our counter AND above cost
         if offered >= (state.current_offer - acceptance_threshold) and offered >= product.cost_price:
