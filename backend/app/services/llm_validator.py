@@ -61,6 +61,24 @@ class LLMValidator:
         "no cost",
     ]
     
+    # SECURITY: Phrases that indicate internal data leakage
+    LEAKAGE_PHRASES = [
+        "cost price",
+        "our cost",
+        "our margin",
+        "margin is",
+        "margin of",
+        "profit margin",
+        "concession budget",
+        "minimum acceptable",
+        "our minimum",
+        "floor price",
+        "we can go as low as",
+        "our lowest is",
+        "break even",
+        "breakeven",
+    ]
+    
     def validate(
         self,
         llm_output: str,
