@@ -419,7 +419,14 @@ export default function Chat() {
             }
         } catch (err) {
             console.error('Send message error:', err);
-            setError("Failed to send: " + err.message);
+            // Edge case: handle auth expiry mid-negotiation
+            if (err.message?.includes('401') || err.message?.includes('Authentication expired') || err.message?.includes('Token expired')) {
+                setError("Your session has expired. Please log in again to continue.");
+            } else if (err.message?.includes('timed out')) {
+                setError("The AI took too long to respond. Please try again.");
+            } else {
+                setError("Failed to send: " + err.message);
+            }
         } finally {
             setLoading(false);
         }

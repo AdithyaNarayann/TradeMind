@@ -475,7 +475,12 @@ class PricingStrategyAgent:
         return margin_pct, profit_unit, total_profit
 
     def _round_price(self, price: Decimal) -> Decimal:
-        return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        """Round price to 2 decimal places. Handles edge cases."""
+        try:
+            return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, OverflowError):
+            logger.warning("price_rounding_error", price=str(price))
+            return Decimal("0.00")
 
     def _clean_json(self, content: str) -> str:
         """Strip markdown fences from LLM JSON response."""
