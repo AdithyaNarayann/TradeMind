@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_timeout_seconds: float = 10.0
     
+    # Sarvam AI (Voice)
+    sarvam_api_key: str = ""  # Set in .env — get from https://dashboard.sarvam.ai
+    sarvam_stt_ws_url: str = "wss://api.sarvam.ai/speech-to-text/ws"
+    sarvam_tts_ws_url: str = "wss://api.sarvam.ai/text-to-speech/ws"
+    sarvam_tts_rest_url: str = "https://api.sarvam.ai/text-to-speech"
+    sarvam_stt_model: str = "saaras:v3"
+    sarvam_tts_model: str = "bulbul:v3-beta"
+    sarvam_tts_speaker: str = "Shubh"
+    sarvam_language: str = "en-IN"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
