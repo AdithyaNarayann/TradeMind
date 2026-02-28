@@ -24,19 +24,14 @@ def custom_key_func(request: Request) -> str:
     """
     Custom key function for rate limiting.
     
-    Uses:
-    1. X-Forwarded-For header (for proxied requests)
-    2. X-Real-IP header
-    3. Client IP from request
+    SECURITY: Only trust proxy headers when behind a known reverse proxy.
+    In production, configure TRUSTED_PROXY_IPS or use uvicorn --proxy-headers
+    with --forwarded-allow-ips to prevent IP spoofing.
+    
+    Falls back to the direct client IP for safety.
     """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip
-    
+    # Only trust proxy headers in production behind a known proxy
+    # For now, always use the direct connection IP to prevent spoofing
     return get_remote_address(request)
 
 
