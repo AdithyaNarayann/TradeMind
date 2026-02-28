@@ -8,7 +8,7 @@ POST   /api/v1/chat-sessions/{id}/messages         → save a round (user msg + 
 PUT    /api/v1/chat-sessions/{id}/close            → close session with final outcome
 """
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -44,13 +44,21 @@ class SaveMessageRequest(BaseModel):
     decision: Optional[str] = None  # accept / counter / reject / chat
 
 class CloseSessionRequest(BaseModel):
-    status: str                         # accepted / rejected / expired / walked_away
+    status: str                         # accepted / rejected / expired / buyer_walked
     final_price: Optional[float] = None
-    final_decision: str                 # accepted / rejected / expired / walked_away
+    final_decision: str                 # accepted / rejected / expired / buyer_walked
     deal_closed: bool = False
     buyer_last_offer: Optional[float] = None
     seller_last_offer: Optional[float] = None
     rounds_used: int = 0
+
+    @field_validator("status", "final_decision", mode="before")
+    @classmethod
+    def normalize_status(cls, v):
+        """Normalize walked_away → buyer_walked for consistency with engine enums."""
+        if isinstance(v, str) and v == "walked_away":
+            return "buyer_walked"
+        return v
 
 class CallbackRequest(BaseModel):
     session_id: int
@@ -211,7 +219,7 @@ async def dashboard_summary(user=Depends(get_current_user)):
                      SUM(status = 'rejected') AS rejected,
                      SUM(status = 'active')   AS active,
                      SUM(status = 'expired')  AS expired,
-                     SUM(status = 'walked_away') AS walked_away,
+                     SUM(status = 'walked_away' OR status = 'buyer_walked') AS walked_away,
                      COALESCE(SUM(CASE WHEN deal_closed THEN final_price END), 0) AS total_revenue,
                      COALESCE(AVG(CASE WHEN deal_closed THEN final_price END), 0) AS avg_deal_price,
                      COALESCE(AVG(CASE WHEN deal_closed THEN rounds_used END), 0) AS avg_rounds,

@@ -47,6 +47,8 @@ class ProductData(BaseModel):
             raise ValueError("min_acceptable_price cannot exceed base_price")
         if self.cost_price > self.base_price:
             raise ValueError("cost_price cannot exceed base_price (negative margin)")
+        if self.min_acceptable_price < self.cost_price:
+            raise ValueError("min_acceptable_price cannot be below cost_price (would allow selling at a loss)")
         return self
 
 

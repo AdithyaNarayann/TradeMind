@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     rate_limit_per_hour: int = 1000
     
     # Session Management
-    session_ttl_seconds: int = 3600  # 1 hour
+    session_ttl_seconds: int = 7200  # 2 hours (longer than JWT to avoid mid-negotiation drops)
     max_sessions_per_client: int = 10
     
     # Security

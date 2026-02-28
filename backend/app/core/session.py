@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from cachetools import TTLCache
 import threading
+import structlog
 
 from ..models import (
     ProductData,
@@ -22,6 +23,8 @@ from ..models import (
 )
 from ..agents import StrategicPosture, PricingState
 from .config import get_settings
+
+_session_logger = structlog.get_logger("session_manager")
 
 
 @dataclass
@@ -128,8 +131,16 @@ class SessionManager:
         return session
 
     def get_session(self, session_id: UUID) -> Optional[NegotiationSession]:
-        """Retrieve a session by ID."""
-        return self._sessions.get(session_id)
+        """Retrieve a session by ID. Returns None if expired or not found."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            _session_logger.warning(
+                "session_not_found",
+                session_id=str(session_id),
+                active_count=len(self._sessions),
+                hint="Session may have been evicted by TTL or maxsize",
+            )
+        return session
 
     def update_session(self, session: NegotiationSession) -> None:
         """Update an existing session."""

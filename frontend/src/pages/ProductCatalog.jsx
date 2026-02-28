@@ -804,18 +804,18 @@ export default function ProductCatalog() {
                                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                                         <div className="bg-neo-teal/10 border-[2px] border-neo-teal p-3 text-center">
                                                             <p className="text-[8px] uppercase font-bold text-neo-teal/70 tracking-wider">Total Revenue</p>
-                                                            <p className="text-lg font-heading font-bold text-neo-teal">₹{totalRevenue.toLocaleString()}</p>
+                                                            <p className="text-lg font-heading font-bold text-neo-teal">${totalRevenue.toLocaleString()}</p>
                                                         </div>
                                                         <div className="bg-neo-orange/10 border-[2px] border-neo-orange p-3 text-center">
                                                             <p className="text-[8px] uppercase font-bold text-neo-orange/70 tracking-wider">Avg Deal Price</p>
                                                             <p className="text-lg font-heading font-bold text-neo-orange">
-                                                                {avgFinalPrice > 0 ? `₹${avgFinalPrice.toFixed(0)}` : '—'}
+                                                                {avgFinalPrice > 0 ? `$${avgFinalPrice.toFixed(0)}` : '—'}
                                                             </p>
                                                         </div>
                                                         <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">
                                                             <p className="text-[8px] uppercase font-bold text-neo-navy/50 tracking-wider">Deal Range</p>
                                                             <p className="text-sm font-heading font-bold text-neo-navy">
-                                                                {minDealPrice > 0 ? `₹${minDealPrice.toFixed(0)} – ₹${maxDealPrice.toFixed(0)}` : '—'}
+                                                                {minDealPrice > 0 ? `$${minDealPrice.toFixed(0)} – $${maxDealPrice.toFixed(0)}` : '—'}
                                                             </p>
                                                         </div>
                                                         <div className="bg-neo-navy/5 border-[2px] border-neo-navy p-3 text-center">

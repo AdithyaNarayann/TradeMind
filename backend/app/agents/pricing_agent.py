@@ -193,8 +193,9 @@ class PricingStrategyAgent:
             data = json.loads(self._clean_json(result.content))
             offer = Decimal(str(data["initial_offer"]))
 
-            # Guardrail: always start at base price
-            offer = product.base_price
+            # Guardrail: never start below min_acceptable or above base_price
+            offer = min(offer, product.base_price)
+            offer = max(offer, product.min_acceptable_price)
 
             # Quantity discount (only for multi-unit orders)
             if inventory.requested_quantity > 1:
@@ -265,11 +266,15 @@ class PricingStrategyAgent:
                 decision = OfferDecision.COUNTER   # default to counter
 
             # NOTE: Acceptance is handled by proximity check in evaluate_offer().
-            # If AI says "accept" here, override to COUNTER — only the
-            # proximity threshold decides acceptance.
+            # If AI says "accept" here, allow it ONLY if offer meets hard constraints
+            # (above cost_price and min_acceptable_price). Otherwise override to COUNTER.
             if decision_str == "accept":
-                decision = OfferDecision.COUNTER
-                counter_price_raw = counter_price_raw or str(state.current_offer)
+                if offered >= product.min_acceptable_price and offered >= product.cost_price:
+                    decision = OfferDecision.ACCEPT
+                    counter_price_raw = None
+                else:
+                    decision = OfferDecision.COUNTER
+                    counter_price_raw = counter_price_raw or str(state.current_offer)
 
             # ── Guardrails for COUNTER ────────────────────────────────
             counter_price = None

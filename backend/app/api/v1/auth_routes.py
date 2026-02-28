@@ -11,6 +11,7 @@ import datetime
 import os
 import time
 import hashlib
+import aiomysql
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -38,6 +39,8 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 1  # Shortened from 24h to 1h for security
 
 # ── Account lockout tracking (in-memory) ──────────────────────────
+# WARNING: This is per-process. If running multiple uvicorn workers,
+# each worker has its own dict. For production, use Redis or DB-backed lockout.
 _failed_attempts: dict = defaultdict(list)  # key -> [timestamps]
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_WINDOW_SECONDS = 900  # 15 minutes
@@ -144,7 +147,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
     # ── API-key path (starts with tm_) ─────────────────────────────
     if token.startswith("tm_"):
-        import aiomysql
         async with get_conn() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
@@ -244,7 +246,3 @@ async def login(request: Request, body: LoginRequest):
 async def me(user=Depends(get_current_user)):
     """Return the currently authenticated user."""
     return UserResponse(**user)
-
-
-# Need to import aiomysql for DictCursor
-import aiomysql
