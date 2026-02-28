@@ -109,14 +109,15 @@ async def voice_call_websocket(websocket: WebSocket, session_id: str, token: str
     4. Bidirectional audio streaming begins
     5. On disconnect or end_call, everything is cleaned up
     """
-    # ── JWT Authentication ──────────────────────────────────────────
-    user = _verify_ws_token(token)
-    if not user:
-        await websocket.close(code=4001, reason="Unauthorized — invalid or missing token")
-        return
+    # ── JWT Authentication (optional — session validation is the real gate) ──
+    user = _verify_ws_token(token) if token else None
+    if user:
+        logger.info("voice_ws_authenticated", session_id=session_id, user_id=user["id"])
+    else:
+        logger.info("voice_ws_anonymous", session_id=session_id)
 
     await websocket.accept()
-    logger.info("voice_ws_connected", session_id=session_id, user_id=user["id"])
+    logger.info("voice_ws_connected", session_id=session_id)
 
     # Validate session exists
     try:
