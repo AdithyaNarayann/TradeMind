@@ -27,11 +27,11 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
-# JWT config from environment — NEVER hardcode secrets
-JWT_SECRET = os.getenv("JWT_SECRET", "")
+# JWT config — read from pydantic Settings (which loads .env)
+JWT_SECRET = _settings.jwt_secret
 if not JWT_SECRET:
     raise RuntimeError(
-        "FATAL: JWT_SECRET environment variable is not set. "
+        "FATAL: JWT_SECRET is not set in .env. "
         "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 JWT_ALGORITHM = "HS256"
