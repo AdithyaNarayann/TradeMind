@@ -50,7 +50,7 @@ async def create_api_key(body: dict = None, user=Depends(get_current_user)):
                 await send_notification_email(user["id"], subject, html)
         except Exception as e:
             _email_logger.error("api_key_created_email_failed", error=str(e))
-    asyncio.ensure_future(_send_key_created_email())
+    asyncio.create_task(_send_key_created_email())
 
     return {"id": key_id, "api_key": key, "label": label}
 
@@ -67,10 +67,11 @@ async def list_api_keys(user=Depends(get_current_user)):
             )
             rows = await cur.fetchall()
     # Return masked keys for security — only show last 8 chars
+    # SECURITY: Never return full API key in list — only shown once at creation
     for row in rows:
         full = row["api_key"]
         row["api_key_masked"] = full[:3] + "•" * (len(full) - 11) + full[-8:]
-        row["api_key_full"] = full  # frontend needs it for copy
+        del row["api_key"]  # Remove raw key from response
         row["created_at"] = str(row["created_at"]) if row["created_at"] else None
         row["last_used_at"] = str(row["last_used_at"]) if row["last_used_at"] else None
     return {"keys": rows}
@@ -101,6 +102,6 @@ async def revoke_api_key(key_id: int, user=Depends(get_current_user)):
                 await send_notification_email(user["id"], subject, html)
         except Exception as e:
             _email_logger.error("api_key_revoked_email_failed", error=str(e))
-    asyncio.ensure_future(_send_key_revoked_email())
+    asyncio.create_task(_send_key_revoked_email())
 
     return {"deleted": True}

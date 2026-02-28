@@ -2,14 +2,25 @@
 MySQL async connection pool using aiomysql.
 """
 import aiomysql
-import os
 from contextlib import asynccontextmanager
+from ...core.config import get_settings
 
-MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "1234")
-MYSQL_DB = os.getenv("MYSQL_DB", "trademind")
+_settings = get_settings()
+
+# SECURITY: Read all DB config from pydantic Settings (which loads .env)
+MYSQL_HOST = _settings.mysql_host
+MYSQL_PORT = _settings.mysql_port
+MYSQL_USER = _settings.mysql_user
+MYSQL_PASSWORD = _settings.mysql_password
+MYSQL_DB = _settings.mysql_db
+
+if not MYSQL_USER or not MYSQL_PASSWORD:
+    import warnings
+    warnings.warn(
+        "MYSQL_USER and MYSQL_PASSWORD should be set via environment variables. "
+        "Do not use default/hardcoded credentials in production.",
+        stacklevel=2,
+    )
 
 _pool: aiomysql.Pool | None = None
 

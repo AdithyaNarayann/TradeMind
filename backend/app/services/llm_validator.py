@@ -61,6 +61,24 @@ class LLMValidator:
         "no cost",
     ]
     
+    # SECURITY: Phrases that indicate internal data leakage
+    LEAKAGE_PHRASES = [
+        "cost price",
+        "our cost",
+        "our margin",
+        "margin is",
+        "margin of",
+        "profit margin",
+        "concession budget",
+        "minimum acceptable",
+        "our minimum",
+        "floor price",
+        "we can go as low as",
+        "our lowest is",
+        "break even",
+        "breakeven",
+    ]
+    
     def validate(
         self,
         llm_output: str,
@@ -91,6 +109,11 @@ class LLMValidator:
             if phrase in content_lower:
                 violations.append(f"forbidden_phrase: {phrase}")
         
+        # Check 2b: SECURITY — detect leaked internal business data
+        for phrase in self.LEAKAGE_PHRASES:
+            if phrase in content_lower:
+                violations.append(f"data_leakage: {phrase}")
+        
         # Check 3: Extract all dollar amounts from LLM output
         dollar_amounts = self._extract_prices(content)
         
@@ -106,10 +129,11 @@ class LLMValidator:
         )
         violations.extend(decision_violations)
         
-        # Determine validity - price violations are fatal
+        # Determine validity - price violations and leakage are fatal
         has_fatal = any(
             v.startswith("invented_price") or 
             v.startswith("wrong_decision") or
+            v.startswith("data_leakage") or
             v == "response_too_short"
             for v in violations
         )
