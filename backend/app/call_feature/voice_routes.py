@@ -6,6 +6,7 @@ Protocol:
         { type: "audio", data: "<base64 PCM 16kHz>" }
         { type: "end_call" }
         { type: "flush" }
+        { type: "ping" }
 
     Server → Client:
         { type: "user_transcript", text: "...", is_final: bool }
@@ -14,11 +15,14 @@ Protocol:
         { type: "ai_audio_end" }
         { type: "status", status: "connecting"|"listening"|"processing"|"speaking" }
         { type: "error", message: "..." }
+        { type: "pong", ts: <server_ms> }
 """
 import asyncio
 import json
+import time
 from uuid import UUID
 
+import jwt as pyjwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 import structlog
@@ -31,6 +35,23 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 voice_router = APIRouter(prefix="/api/v1/voice", tags=["Voice Call"])
+
+
+def _verify_ws_token(token: str) -> dict:
+    """Verify JWT token for WebSocket connections (no Depends available)."""
+    if not token:
+        return None
+    try:
+        payload = pyjwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        return {
+            "id": int(payload["sub"]),
+            "email": payload.get("email", ""),
+            "full_name": payload.get("full_name", ""),
+        }
+    except pyjwt.ExpiredSignatureError:
+        return None
+    except pyjwt.InvalidTokenError:
+        return None
 
 
 @voice_router.get("/health")
@@ -75,19 +96,27 @@ async def validate_voice_session(session_id: str):
 
 
 @voice_router.websocket("/ws/{session_id}")
-async def voice_call_websocket(websocket: WebSocket, session_id: str):
+async def voice_call_websocket(websocket: WebSocket, session_id: str, token: str = Query(default="")):
     """
     Full-duplex voice call WebSocket endpoint.
 
+    Accepts `?token=<jwt>` query param for authentication.
+
     Flow:
-    1. Client connects
-    2. Server validates session
+    1. Client connects with JWT token
+    2. Server validates token + session
     3. Server opens Sarvam STT + TTS WebSockets
     4. Bidirectional audio streaming begins
     5. On disconnect or end_call, everything is cleaned up
     """
+    # ── JWT Authentication ──────────────────────────────────────────
+    user = _verify_ws_token(token)
+    if not user:
+        await websocket.close(code=4001, reason="Unauthorized — invalid or missing token")
+        return
+
     await websocket.accept()
-    logger.info("voice_ws_connected", session_id=session_id)
+    logger.info("voice_ws_connected", session_id=session_id, user_id=user["id"])
 
     # Validate session exists
     try:

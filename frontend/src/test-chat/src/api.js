@@ -120,9 +120,7 @@ export async function createSession(config = null) {
         const body = config || DEFAULT_SESSION_CONFIG;
         const response = await fetch(`${API_BASE}/sessions`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: _authHeaders(),
             body: JSON.stringify(body)
         });
 
@@ -149,9 +147,7 @@ export async function submitOffer(sessionId, offeredPrice, message = null, offer
 
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/turns`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: _authHeaders(),
             body: JSON.stringify(body)
         });
 
@@ -174,9 +170,7 @@ export async function sendChat(sessionId, message) {
 
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: _authHeaders(),
             body: JSON.stringify(body)
         });
 
@@ -197,9 +191,7 @@ export async function getSession(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            headers: _authHeaders(),
         });
 
         if (!response.ok) {
@@ -218,6 +210,7 @@ export async function getAnalytics(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/analytics`, {
             method: 'GET',
+            headers: _authHeaders(),
         });
 
         if (!response.ok) {
