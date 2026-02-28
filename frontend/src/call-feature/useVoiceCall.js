@@ -47,7 +47,15 @@ function pcmToBase64(pcmData) {
     return btoa(binary);
 }
 
-/** Decode base64 audio to AudioBuffer for playback. */
+/**
+ * Decode base64 audio to an AudioBuffer for playback.
+ *
+ * Strategy:
+ *  1. Convert base64 → Uint8Array of bytes
+ *  2. If it has a RIFF/WAV header → use native decodeAudioData (handles sample rate)
+ *  3. Otherwise wrap raw PCM in a proper WAV header → decodeAudioData
+ *  4. Last resort: manually create AudioBuffer from PCM samples
+ */
 async function decodeBase64Audio(audioCtx, base64Audio, sampleRate = 24000) {
     const binaryStr = atob(base64Audio);
     const bytes = new Uint8Array(binaryStr.length);
@@ -55,35 +63,68 @@ async function decodeBase64Audio(audioCtx, base64Audio, sampleRate = 24000) {
         bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    // Check if data has a WAV/RIFF header
+    // Strategy 1: Already a valid WAV/RIFF — let the browser decode natively
     const hasWavHeader = bytes.length > 44 &&
-        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46; // "RIFF"
+        bytes[0] === 0x52 && bytes[1] === 0x49 &&
+        bytes[2] === 0x46 && bytes[3] === 0x46; // "RIFF"
 
     if (hasWavHeader) {
         try {
+            // Clone the buffer because decodeAudioData detaches it
             return await audioCtx.decodeAudioData(bytes.buffer.slice(0));
-        } catch {
-            // WAV header corrupt — strip header and treat as raw PCM
-            const pcmBytes = bytes.slice(44);
-            return rawPCMtoAudioBuffer(audioCtx, pcmBytes, sampleRate);
+        } catch (e) {
+            console.warn('WAV decodeAudioData failed, trying manual:', e);
         }
     }
 
-    // Raw PCM data — create AudioBuffer directly (most reliable)
-    return rawPCMtoAudioBuffer(audioCtx, bytes, sampleRate);
+    // Strategy 2: Wrap raw PCM in a proper WAV header and decode natively
+    try {
+        const wavBuf = wrapPCMinWAV(hasWavHeader ? bytes.slice(44) : bytes, sampleRate);
+        return await audioCtx.decodeAudioData(wavBuf);
+    } catch (e2) {
+        console.warn('WAV-wrapped decodeAudioData failed, manual fallback:', e2);
+    }
+
+    // Strategy 3: Manual PCM → AudioBuffer (last resort)
+    return rawPCMtoAudioBuffer(audioCtx, hasWavHeader ? bytes.slice(44) : bytes, sampleRate);
 }
 
-/** Convert raw PCM Int16 bytes to AudioBuffer at the correct sample rate. */
+/** Wrap raw PCM Int16 LE bytes in a valid WAV header. */
+function wrapPCMinWAV(pcmBytes, sampleRate) {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    const dataSize = pcmBytes.length;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    const w = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    w(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    w(8, 'WAVE');
+    w(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    w(36, 'data');
+    view.setUint32(40, dataSize, true);
+    new Uint8Array(buffer, 44).set(pcmBytes);
+    return buffer;
+}
+
+/** Convert raw PCM Int16 LE bytes to AudioBuffer directly. */
 function rawPCMtoAudioBuffer(audioCtx, pcmBytes, sampleRate) {
-    // PCM is signed 16-bit little-endian mono
     const numSamples = Math.floor(pcmBytes.length / 2);
+    if (numSamples === 0) return audioCtx.createBuffer(1, 1, sampleRate);
     const audioBuffer = audioCtx.createBuffer(1, numSamples, sampleRate);
     const channelData = audioBuffer.getChannelData(0);
     const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
-
     for (let i = 0; i < numSamples; i++) {
-        const int16 = view.getInt16(i * 2, true); // little-endian
-        channelData[i] = int16 / 32768; // normalize to -1..1
+        channelData[i] = view.getInt16(i * 2, true) / 32768;
     }
     return audioBuffer;
 }
@@ -505,8 +546,9 @@ export default function useVoiceCall({ sessionId }) {
         const { base64Audio, sampleRate } = audioQueueRef.current.shift();
 
         try {
+            // Use a single persistent playback context at 24kHz (Sarvam output rate)
             if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
                 playbackCtxRef.current = ctx;
 
                 // Create gain + analyser chain
@@ -531,6 +573,7 @@ export default function useVoiceCall({ sessionId }) {
             }
 
             const audioBuffer = await decodeBase64Audio(playbackCtxRef.current, base64Audio, sampleRate || 24000);
+            console.log(`Playing audio: ${audioBuffer.duration.toFixed(2)}s @ ${audioBuffer.sampleRate}Hz, ${audioBuffer.length} samples`);
             const source = playbackCtxRef.current.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(gainNodeRef.current);

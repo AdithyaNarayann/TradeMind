@@ -121,12 +121,11 @@ class VoiceCallHandler:
             })
             return
 
-        # Connect to Sarvam TTS (WebSocket)
-        try:
-            await self.tts.connect()
-        except Exception as e:
-            logger.warning("tts_ws_failed_using_rest", error=str(e))
-            self._use_rest_tts = True
+        # Use REST TTS by default — it returns complete, properly-formatted
+        # WAV files which are much more reliable for browser playback.
+        # WebSocket TTS returns partial chunks that can cause speed/decode issues.
+        self._use_rest_tts = True
+        logger.info("using_rest_tts", reason="REST returns complete WAV files")
 
         await self._send_client({
             "type": "status",
@@ -380,7 +379,7 @@ class VoiceCallHandler:
                 break
 
     async def _tts_rest_fallback(self, text: str):
-        """Use REST TTS API as fallback."""
+        """Use REST TTS API — returns complete, decodable WAV audio."""
         audio_b64 = await sarvam_tts_rest(
             text=text,
             language=settings.sarvam_language,
@@ -392,7 +391,9 @@ class VoiceCallHandler:
                 "data": audio_b64,
                 "content_type": "audio/wav",
                 "sample_rate": 24000,
+                "format": "wav",
             })
+            logger.debug("tts_rest_audio_sent", text_len=len(text), audio_b64_len=len(audio_b64))
 
     async def _handle_interrupt(self):
         """Handle user interrupting the AI mid-speech."""
