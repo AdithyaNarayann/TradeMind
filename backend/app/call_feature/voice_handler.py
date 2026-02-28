@@ -304,48 +304,66 @@ class VoiceCallHandler:
         Instead of processing each transcript immediately, we buffer them
         with a debounce timer. This prevents split-word issues where
         "fifty dollars" comes as two separate transcripts "fifty" and "dollars".
+
+        Auto-restarts if the STT connection drops and reconnects.
         """
-        try:
-            async for msg in self.stt.receive_transcripts():
-                if not self.is_active:
-                    break
+        max_retries = 5
+        retry = 0
+        while self.is_active and retry < max_retries:
+            try:
+                async for msg in self.stt.receive_transcripts():
+                    if not self.is_active:
+                        return
+                    retry = 0  # Reset on successful message
 
-                if msg["type"] == "transcript":
-                    transcript = msg["transcript"].strip()
-                    if not transcript:
-                        continue
-
-                    is_final = msg.get("is_final", False)
-
-                    # Send live transcript to client for display
-                    await self._send_client({
-                        "type": "user_transcript",
-                        "text": transcript,
-                        "is_final": is_final,
-                    })
-
-                    if is_final and transcript:
-                        # Barge-in on final transcript too
-                        if self.turn_state == TurnState.SPEAKING:
-                            await self._handle_interrupt()
-
-                        # Skip pure filler (but smart — never drops prices)
-                        if _is_filler(transcript):
-                            logger.debug("skipping_filler", text=transcript)
+                    if msg["type"] == "transcript":
+                        transcript = msg["transcript"].strip()
+                        if not transcript:
                             continue
 
-                        # Buffer the transcript and (re)start debounce timer
-                        await self._buffer_transcript(transcript)
+                        is_final = msg.get("is_final", False)
 
-                elif msg["type"] == "vad":
-                    event = msg.get("event", "")
-                    if event == "speech_start" and self.turn_state == TurnState.SPEAKING:
-                        await self._handle_interrupt()
+                        # Send live transcript to client for display
+                        await self._send_client({
+                            "type": "user_transcript",
+                            "text": transcript,
+                            "is_final": is_final,
+                        })
 
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error("stt_receive_loop_error", error=str(e))
+                        if is_final and transcript:
+                            # Barge-in on final transcript too
+                            if self.turn_state == TurnState.SPEAKING:
+                                await self._handle_interrupt()
+
+                            # Skip pure filler (but smart — never drops prices)
+                            if _is_filler(transcript):
+                                logger.debug("skipping_filler", text=transcript)
+                                continue
+
+                            # Buffer the transcript and (re)start debounce timer
+                            await self._buffer_transcript(transcript)
+
+                    elif msg["type"] == "vad":
+                        event = msg.get("event", "")
+                        if event == "speech_start" and self.turn_state == TurnState.SPEAKING:
+                            await self._handle_interrupt()
+
+                # receive_transcripts ended (WS closed) — try reconnect
+                if self.is_active and not self.stt._cancelled:
+                    retry += 1
+                    logger.info("stt_receive_loop_reconnecting", retry=retry)
+                    await asyncio.sleep(0.5 * retry)
+                    # The next send_audio call will trigger reconnect
+                else:
+                    break
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                retry += 1
+                logger.error("stt_receive_loop_error", error=str(e), retry=retry)
+                if self.is_active and retry < max_retries:
+                    await asyncio.sleep(0.5 * retry)
 
     async def _buffer_transcript(self, transcript: str):
         """
@@ -553,8 +571,8 @@ class VoiceCallHandler:
 
     async def _silence_monitor(self):
         """
-        Flush STT after silence — but only ONCE per silence gap.
-        Prevents repeated flushes that waste API calls.
+        Flush STT after silence — but only ONCE per silence gap,
+        and only after audio has actually been sent to STT.
         """
         try:
             while self.is_active:
@@ -562,6 +580,10 @@ class VoiceCallHandler:
 
                 if self.turn_state != TurnState.LISTENING:
                     continue  # Only monitor silence during listening
+
+                # Don't flush if STT hasn't received any audio yet
+                if not self.stt.has_sent_audio:
+                    continue
 
                 elapsed = time.time() - self._last_audio_ts
                 if elapsed >= SILENCE_TIMEOUT_S and not self._silence_flushed:

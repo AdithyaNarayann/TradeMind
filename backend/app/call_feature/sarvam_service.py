@@ -42,6 +42,8 @@ class SarvamSTTStream:
         self._ws = None
         self._connected = False
         self._cancelled = False
+        self._audio_sent = False  # True once first audio chunk sent
+        self._reconnecting = False
 
     async def connect(self):
         """Open WebSocket to Sarvam STT."""
@@ -73,7 +75,11 @@ class SarvamSTTStream:
     async def send_audio(self, audio_bytes: bytes):
         """Send a chunk of PCM 16kHz audio to Sarvam STT."""
         if not self._ws or not self._connected:
-            return
+            # Auto-reconnect if connection was lost
+            if not self._cancelled and not self._reconnecting:
+                await self._reconnect()
+            if not self._ws or not self._connected:
+                return
         try:
             # Sarvam expects JSON with base64-encoded audio
             msg = json.dumps({
@@ -84,17 +90,31 @@ class SarvamSTTStream:
                 }
             })
             await self._ws.send(msg)
+            self._audio_sent = True
         except Exception as e:
             logger.warning("sarvam_stt_send_error", error=str(e))
+            self._connected = False
+            # Try to reconnect on next call
+            if not self._cancelled:
+                await self._reconnect()
+
+    @property
+    def has_sent_audio(self) -> bool:
+        """Whether any audio has been sent to STT since connection."""
+        return self._audio_sent
 
     async def flush(self):
         """Send flush signal to finalize current utterance."""
         if not self._ws or not self._connected:
             return
+        # Don't flush if no audio has been sent — Sarvam will close the WS
+        if not self._audio_sent:
+            return
         try:
             await self._ws.send(json.dumps({"type": "flush"}))
         except Exception as e:
             logger.warning("sarvam_stt_flush_error", error=str(e))
+            self._connected = False
 
     async def receive_transcripts(self) -> AsyncGenerator[dict, None]:
         """
@@ -134,9 +154,35 @@ class SarvamSTTStream:
                     logger.warning("sarvam_stt_bad_json", raw=str(raw_msg)[:200])
         except websockets.exceptions.ConnectionClosed:
             logger.info("sarvam_stt_ws_closed")
+            self._connected = False
         except Exception as e:
+            self._connected = False
             if not self._cancelled:
                 logger.error("sarvam_stt_receive_error", error=str(e))
+
+    async def _reconnect(self):
+        """Reconnect the STT WebSocket after a drop."""
+        if self._reconnecting or self._cancelled:
+            return
+        self._reconnecting = True
+        try:
+            # Close old socket
+            if self._ws:
+                try:
+                    await self._ws.close()
+                except Exception:
+                    pass
+                self._ws = None
+            self._connected = False
+            self._audio_sent = False
+
+            logger.info("sarvam_stt_reconnecting")
+            await self.connect()
+            logger.info("sarvam_stt_reconnected")
+        except Exception as e:
+            logger.error("sarvam_stt_reconnect_failed", error=str(e))
+        finally:
+            self._reconnecting = False
 
     async def close(self):
         """Close the STT WebSocket."""

@@ -49,8 +49,8 @@ function App() {
             {/* Authority */}
             <Route path="/authority" element={<BusinessAnalytics />} />
 
-            {/* Jury */}
-            <Route path="/jury" element={<NegotiationDashboard />} />
+            {/* Jury (requires login) */}
+            <Route path="/jury" element={<ProtectedRoute><NegotiationDashboard /></ProtectedRoute>} />
 
             {/* Reputation */}
             <Route path="/reputation" element={<ReputationDashboard />} />

@@ -195,6 +195,89 @@ async def list_callback_requests(user=Depends(get_current_user)):
     return results
 
 
+# ── Dashboard endpoints (MUST be before /{session_id}) ─────────────
+
+@router.get("/dashboard/summary")
+async def dashboard_summary(user=Depends(get_current_user)):
+    """Real-time dashboard stats for the seller."""
+    async with get_conn() as conn:
+        async with conn.cursor() as cur:
+            uid = user["id"]
+            # Overall counts
+            await cur.execute(
+                """SELECT
+                     COUNT(*) AS total,
+                     SUM(status = 'accepted') AS accepted,
+                     SUM(status = 'rejected') AS rejected,
+                     SUM(status = 'active')   AS active,
+                     SUM(status = 'expired')  AS expired,
+                     SUM(status = 'walked_away') AS walked_away,
+                     COALESCE(SUM(CASE WHEN deal_closed THEN final_price END), 0) AS total_revenue,
+                     COALESCE(AVG(CASE WHEN deal_closed THEN final_price END), 0) AS avg_deal_price,
+                     COALESCE(AVG(CASE WHEN deal_closed THEN rounds_used END), 0) AS avg_rounds,
+                     COALESCE(AVG(base_price), 0) AS avg_base_price,
+                     COALESCE(MAX(CASE WHEN deal_closed THEN final_price END), 0) AS best_deal,
+                     COALESCE(MIN(CASE WHEN deal_closed THEN final_price END), 0) AS worst_deal
+                   FROM chat_sessions WHERE user_id = %s""",
+                (uid,),
+            )
+            cols = [d[0] for d in cur.description]
+            row = await cur.fetchone()
+            summary = dict(zip(cols, row))
+            # Convert Decimals
+            for k in summary:
+                if summary[k] is not None:
+                    summary[k] = float(summary[k])
+                else:
+                    summary[k] = 0
+
+            # Recent closed deals (last 20)
+            await cur.execute(
+                """SELECT cs.id, cs.product_name, cs.status, cs.base_price, cs.final_price,
+                          cs.rounds_used, cs.final_decision, cs.deal_closed,
+                          cs.buyer_last_offer, cs.seller_last_offer,
+                          cs.created_at, cs.closed_at,
+                          cr.phone_number AS callback_phone,
+                          cr.created_at AS callback_requested_at
+                   FROM chat_sessions cs
+                   LEFT JOIN callback_requests cr ON cr.session_id = cs.id AND cr.user_id = cs.user_id
+                   WHERE cs.user_id = %s AND cs.status != 'active'
+                   ORDER BY cs.closed_at DESC LIMIT 20""",
+                (uid,),
+            )
+            cols2 = [d[0] for d in cur.description]
+            rows2 = await cur.fetchall()
+            closed_sessions = []
+            for r in rows2:
+                s = _row_to_session(r, cols2)
+                # Ensure callback fields are serialized
+                if s.get("callback_requested_at") and isinstance(s["callback_requested_at"], datetime):
+                    s["callback_requested_at"] = s["callback_requested_at"].isoformat()
+                closed_sessions.append(s)
+
+            # Active sessions
+            await cur.execute(
+                """SELECT id, product_name, status, base_price, rounds_used,
+                          buyer_last_offer, seller_last_offer,
+                          max_rounds, created_at
+                   FROM chat_sessions
+                   WHERE user_id = %s AND status = 'active'
+                   ORDER BY created_at DESC""",
+                (uid,),
+            )
+            cols3 = [d[0] for d in cur.description]
+            rows3 = await cur.fetchall()
+            active_sessions = [_row_to_session(r, cols3) for r in rows3]
+
+    return {
+        "summary": summary,
+        "closed_sessions": closed_sessions,
+        "active_sessions": active_sessions,
+    }
+
+
+# ── Session detail routes (path param routes AFTER static ones) ────
+
 @router.get("/{session_id}")
 async def get_session(session_id: int, user=Depends(get_current_user)):
     async with get_conn() as conn:
@@ -346,87 +429,6 @@ async def close_session(session_id: int, body: CloseSessionRequest, user=Depends
         asyncio.create_task(_send_deal_email())
 
     return {"closed": True, "session_id": session_id}
-
-
-# ── Dashboard endpoints ────────────────────────────────────────────
-
-@router.get("/dashboard/summary")
-async def dashboard_summary(user=Depends(get_current_user)):
-    """Real-time dashboard stats for the seller."""
-    async with get_conn() as conn:
-        async with conn.cursor() as cur:
-            uid = user["id"]
-            # Overall counts
-            await cur.execute(
-                """SELECT
-                     COUNT(*) AS total,
-                     SUM(status = 'accepted') AS accepted,
-                     SUM(status = 'rejected') AS rejected,
-                     SUM(status = 'active')   AS active,
-                     SUM(status = 'expired')  AS expired,
-                     SUM(status = 'walked_away') AS walked_away,
-                     COALESCE(SUM(CASE WHEN deal_closed THEN final_price END), 0) AS total_revenue,
-                     COALESCE(AVG(CASE WHEN deal_closed THEN final_price END), 0) AS avg_deal_price,
-                     COALESCE(AVG(CASE WHEN deal_closed THEN rounds_used END), 0) AS avg_rounds,
-                     COALESCE(AVG(base_price), 0) AS avg_base_price,
-                     COALESCE(MAX(CASE WHEN deal_closed THEN final_price END), 0) AS best_deal,
-                     COALESCE(MIN(CASE WHEN deal_closed THEN final_price END), 0) AS worst_deal
-                   FROM chat_sessions WHERE user_id = %s""",
-                (uid,),
-            )
-            cols = [d[0] for d in cur.description]
-            row = await cur.fetchone()
-            summary = dict(zip(cols, row))
-            # Convert Decimals
-            for k in summary:
-                if summary[k] is not None:
-                    summary[k] = float(summary[k])
-                else:
-                    summary[k] = 0
-
-            # Recent closed deals (last 20)
-            await cur.execute(
-                """SELECT cs.id, cs.product_name, cs.status, cs.base_price, cs.final_price,
-                          cs.rounds_used, cs.final_decision, cs.deal_closed,
-                          cs.buyer_last_offer, cs.seller_last_offer,
-                          cs.created_at, cs.closed_at,
-                          cr.phone_number AS callback_phone,
-                          cr.created_at AS callback_requested_at
-                   FROM chat_sessions cs
-                   LEFT JOIN callback_requests cr ON cr.session_id = cs.id AND cr.user_id = cs.user_id
-                   WHERE cs.user_id = %s AND cs.status != 'active'
-                   ORDER BY cs.closed_at DESC LIMIT 20""",
-                (uid,),
-            )
-            cols2 = [d[0] for d in cur.description]
-            rows2 = await cur.fetchall()
-            closed_sessions = []
-            for r in rows2:
-                s = _row_to_session(r, cols2)
-                # Ensure callback fields are serialized
-                if s.get("callback_requested_at") and isinstance(s["callback_requested_at"], datetime):
-                    s["callback_requested_at"] = s["callback_requested_at"].isoformat()
-                closed_sessions.append(s)
-
-            # Active sessions
-            await cur.execute(
-                """SELECT id, product_name, status, base_price, rounds_used,
-                          buyer_last_offer, seller_last_offer,
-                          max_rounds, created_at
-                   FROM chat_sessions
-                   WHERE user_id = %s AND status = 'active'
-                   ORDER BY created_at DESC""",
-                (uid,),
-            )
-            cols3 = [d[0] for d in cur.description]
-            rows3 = await cur.fetchall()
-            active_sessions = [_row_to_session(r, cols3) for r in rows3]
-
-    return {
-        "summary": summary,
-        "closed_sessions": closed_sessions,
-        "active_sessions": active_sessions,
-    }
 
 
 @router.get("/{session_id}/export")
