@@ -12,6 +12,7 @@ Rules:
 - Falls back to templates if LLM fails or is not configured
 - ALL LLM output is validated before returning
 """
+import random
 from decimal import Decimal
 from typing import Optional
 from dataclasses import dataclass
@@ -68,63 +69,63 @@ class ConversationAgent:
     
     INITIAL_OFFER_TEMPLATES = {
         NegotiationMode.MAX_PROFIT: [
-            "Thank you for your interest in {product}. Based on our current pricing, I can offer {quantity} unit(s) at ${offer} per unit.",
-            "I appreciate you reaching out about {product}. Our best price for {quantity} unit(s) is ${offer} each.",
+            "Hey! Thanks for checking out {product}. For {quantity} unit(s), I can do ${offer} per unit \u2014 that's a solid price for what you're getting.",
+            "Great to connect! {product} at ${offer} each for {quantity} unit(s) \u2014 I think you'll love the value here.",
         ],
         NegotiationMode.MIN_LOSS: [
-            "Thank you for considering {product}. I can offer {quantity} unit(s) at ${offer} per unit to close this quickly.",
-            "I'm motivated to make this deal work. For {quantity} unit(s) of {product}, I'm offering ${offer} each.",
+            "Hey there! I'd love to get {product} to you. For {quantity} unit(s), I'm starting at ${offer} each \u2014 let's talk!",
+            "Thanks for your interest! I'm motivated to make this work. {quantity} unit(s) of {product} at ${offer} each \u2014 what do you think?",
         ],
     }
     
     ACCEPT_TEMPLATES = [
-        "I accept your offer of ${price} per unit for {quantity} unit(s). Deal confirmed.",
-        "We have a deal at ${price} per unit. Thank you for the negotiation.",
-        "Agreed! ${price} per unit for {quantity} unit(s) works for us.",
+        "Done deal! ${price} per unit for {quantity} unit(s) \u2014 I'm happy with that. Pleasure doing business!",
+        "We've got a deal at ${price} per unit! Great negotiating \u2014 I think this works out well for both of us.",
+        "Love it! ${price} per unit for {quantity} unit(s). Let's make it official!",
     ]
     
     COUNTER_TEMPLATES = {
         NegotiationMode.MAX_PROFIT: {
             "early": [
-                "I appreciate the offer of ${buyer_offer}, but I need ${our_offer} per unit to make this work.",
-                "That's a bit lower than I can go. I can do ${our_offer} per unit.",
-                "I understand your position. My best offer is ${our_offer} per unit.",
+                "I hear you at ${buyer_offer}, but I need to be at ${our_offer} per unit. The quality on this one really backs up that price.",
+                "Thanks for the offer! ${buyer_offer} is a bit low for me though \u2014 how about ${our_offer}? I think that's fair.",
+                "I get where you're coming from with ${buyer_offer}. Let me meet you closer \u2014 ${our_offer} per unit work for you?",
             ],
             "mid": [
-                "We're getting closer. I can meet you at ${our_offer} per unit.",
-                "I've reviewed the numbers and can offer ${our_offer} per unit.",
+                "We're making progress! I've come down to ${our_offer} per unit \u2014 that's a real move on my end.",
+                "Alright, I can do ${our_offer}. That's me meeting you halfway. What do you say?",
             ],
             "late": [
-                "This is my final offer: ${our_offer} per unit. I can't go lower.",
-                "I'm at ${our_offer} per unit. This is as far as I can stretch.",
+                "Look, ${our_offer} per unit is truly my best price. I can't stretch further than this.",
+                "I really want to close this deal \u2014 ${our_offer} is as far as I can go. Let's shake on it!",
             ],
         },
         NegotiationMode.MIN_LOSS: {
             "early": [
-                "I hear you at ${buyer_offer}. Let me offer ${our_offer} per unit.",
-                "I want to make this work. How about ${our_offer} per unit?",
+                "I hear your ${buyer_offer}. Let me come to you a bit \u2014 how's ${our_offer} per unit?",
+                "I want to make this work! ${our_offer} per unit \u2014 that's me being flexible for you.",
             ],
             "mid": [
-                "I'm coming down to ${our_offer} per unit. That's a significant move.",
-                "Let's close this at ${our_offer} per unit.",
+                "Alright, I'm at ${our_offer} now \u2014 that's a big move. Let's get this done!",
+                "I've come down to ${our_offer} per unit. We're really close \u2014 let's lock it in.",
             ],
             "late": [
-                "To close this now, I can do ${our_offer} per unit. Final offer.",
-                "${our_offer} per unit is my bottom line. Let's shake on it.",
+                "Final offer time: ${our_offer} per unit. I really can't go lower, but I hope we can make this work.",
+                "${our_offer} per unit \u2014 that's my absolute bottom. Take it and let's celebrate!",
             ],
         },
     }
     
     REJECT_TEMPLATES = [
-        "I'm sorry, but I can't go below my minimum. Thank you for your time.",
-        "Unfortunately, we couldn't reach an agreement. Perhaps another time.",
-        "The numbers don't work at that price. I'll have to pass on this deal.",
+        "I really wanted to make this work, but I can't go that low. No hard feelings \u2014 hope we can work together in the future!",
+        "Unfortunately the numbers just don't work at that price. It was great chatting with you though!",
+        "I wish I could go lower, but I've hit my limit. Thanks for your time \u2014 you know where to find me if you change your mind!",
     ]
     
     CONSTRAINT_VIOLATION_TEMPLATES = [
-        "That offer is quite a bit lower than where I can go. Let's work together to find a price that makes sense for both of us.",
-        "I appreciate the offer, but {product} has premium quality that commands a fair price. What's the best you can do?",
-        "I understand you're looking for value, but I can't go that low. How about we meet somewhere in the middle?",
+        "That offer is quite a bit lower than where I can go, but I appreciate you putting it out there! Let's work toward something that makes sense for both of us.",
+        "I get it \u2014 everyone wants a great deal! But {product} really does deliver premium quality. What's the highest you can go?",
+        "I can't go that low, but I don't want to lose you either. Meet me somewhere in the middle?",
     ]
     
     SESSION_EXPIRED_TEMPLATES = [
@@ -326,7 +327,7 @@ class ConversationAgent:
     def _template_initial(self, offer: Decimal, context: ConversationContext) -> str:
         """Template fallback for initial offer."""
         templates = self.INITIAL_OFFER_TEMPLATES[context.mode]
-        template = templates[0]
+        template = random.choice(templates)
         return template.format(
             product=context.product_name,
             quantity=context.quantity,
@@ -358,7 +359,7 @@ class ConversationAgent:
         context: ConversationContext,
     ) -> str:
         """Generate acceptance message."""
-        template = self.ACCEPT_TEMPLATES[0]
+        template = random.choice(self.ACCEPT_TEMPLATES)
         return template.format(
             price=self._format_price(decision.accepted_price),
             quantity=context.quantity,
@@ -370,7 +371,7 @@ class ConversationAgent:
         context: ConversationContext,
     ) -> str:
         """Generate rejection message."""
-        return self.REJECT_TEMPLATES[0]
+        return random.choice(self.REJECT_TEMPLATES)
     
     def _generate_counter(
         self,
@@ -380,7 +381,7 @@ class ConversationAgent:
         """Generate counter-offer message."""
         phase = self._get_phase(context.round_number, context.max_rounds)
         templates = self.COUNTER_TEMPLATES[context.mode][phase]
-        template = templates[0]
+        template = random.choice(templates)
         
         return template.format(
             buyer_offer=self._format_price(context.buyer_offered),
@@ -396,7 +397,7 @@ class ConversationAgent:
         floor_price: Optional[Decimal],
     ) -> str:
         """Generate response for constraint violation — NEVER reveal floor price."""
-        template = self.CONSTRAINT_VIOLATION_TEMPLATES[0]
+        template = random.choice(self.CONSTRAINT_VIOLATION_TEMPLATES)
         
         return template.format(
             buyer_offer=self._format_price(context.buyer_offered),

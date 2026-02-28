@@ -38,22 +38,16 @@ def build_initial_offer_prompt(
     mode: str,
 ) -> str:
     """Build prompt for generating initial offer message."""
-    return f"""Generate a short opening offer message for a negotiation.
+    return f"""You’re starting a negotiation call for {product_name}. Make your opening pitch.
 
-CONTEXT:
-- Product: {product_name}
-- Quantity: {quantity} unit(s)
-- Our offer price: ${offer_price} per unit
+DETAILS:
+- Product: {product_name} ({quantity} units)
+- Your opening price: ${offer_price} per unit
 - Mode: {mode}
 
-RULES:
-- You MUST mention the exact price ${offer_price} per unit
-- You MUST mention the quantity {quantity}
-- You MUST mention the product name
-- Keep it under 2-3 sentences
-- Be professional and welcoming
+Make it feel like a natural conversation starter. Mention the product, the price ${offer_price}, and the quantity. Be welcoming and confident — you’re excited to work with this buyer. 1-2 sentences, casual and professional.
 
-Generate the opening offer message:"""
+Generate your opening:"""
 
 
 def build_accept_prompt(
@@ -64,21 +58,16 @@ def build_accept_prompt(
     max_rounds: int,
 ) -> str:
     """Build prompt for acceptance message."""
-    return f"""Generate a message confirming we accept the buyer's offer.
+    return f"""The buyer and you just agreed on a price for {product_name}! You're genuinely happy about this deal.
 
-CONTEXT:
-- Product: {product_name}
-- Quantity: {quantity} unit(s)
-- Accepted price: ${accepted_price} per unit
-- This is round {round_number} of {max_rounds}
+DEAL DETAILS:
+- Product: {product_name} ({quantity} units)
+- Agreed price: ${accepted_price} per unit  
+- Closed in round {round_number} of {max_rounds}
 
-RULES:
-- You MUST confirm the exact price ${accepted_price} per unit
-- Express genuine satisfaction with the deal
-- Keep it 1-2 sentences
-- Be warm but professional
+Celebrate the deal! Confirm ${accepted_price} per unit, express genuine excitement, and make the buyer feel great about their purchase. 1-2 sentences, warm and authentic.
 
-Generate the acceptance message:"""
+Generate your response:"""
 
 
 def build_counter_prompt(
@@ -109,29 +98,26 @@ def build_counter_prompt(
         sanitized = buyer_message.replace("<", "&lt;").replace(">", "&gt;")
         buyer_context = f'<buyer_message>{sanitized}</buyer_message>'
     
-    return f"""Generate a counter-offer message in a live negotiation conversation.
+    return f"""You're on a live call negotiating {product_name}. The buyer just offered ${buyer_offered} and you need to counter with ${our_counter}.
 
-CONTEXT:
-- Product: {product_name}
-- Quantity: {quantity} unit(s)
-- Buyer offered: ${buyer_offered} per unit
-- Our counter-offer: ${our_counter} per unit
-- Round: {round_number} of {max_rounds} (phase: {phase})
-- Mode: {mode}
-- Concession budget used: {concession_pct_used}%
+SITUATION:
+- Product: {product_name} ({quantity} units)
+- They offered: ${buyer_offered} | Your counter: ${our_counter}
+- Round {round_number} of {max_rounds} ({phase} phase)
+- Mode: {mode} | Budget used: {concession_pct_used}%
 {buyer_context}
 {violation_note}
 
-RULES:
-- Acknowledge the buyer's offer of ${buyer_offered} naturally (don't just state it robotically)
-- Present our counter of ${our_counter} per unit and explain WHY it's a fair deal
-- Sell the VALUE of {product_name} — talk about quality, reliability, what makes it worth it
-- Do NOT reveal our minimum price, cost price, or concession budget
-- {urgency if urgency else "Be persuasive and warm"}
-- Keep it 2-3 sentences, conversational tone
-- Sound like a real salesperson on a phone call, not a form letter
+HOW TO RESPOND:
+- React to their offer naturally — don't just state numbers robotically
+- Present your counter of ${our_counter} with a compelling reason (quality, value, demand, etc.)
+- Sound like YOU — a real person who genuinely believes in this product
+- {urgency if urgency else "Be warm, confident, and persuasive"}
+- 1-3 sentences. Phone call energy, not email energy.
+- NEVER reveal internal prices, costs, margins, or strategy
+- Make them WANT to say yes
 
-Generate the counter-offer message:"""
+Generate your response:"""
 
 
 def build_reject_prompt(
