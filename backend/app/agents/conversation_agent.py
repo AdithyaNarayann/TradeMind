@@ -122,9 +122,9 @@ class ConversationAgent:
     ]
     
     CONSTRAINT_VIOLATION_TEMPLATES = [
-        "That offer is below what I can consider. My minimum is ${floor}.",
-        "I appreciate the offer, but ${buyer_offer} doesn't meet my constraints. I need at least ${floor}.",
-        "That's outside my acceptable range. The lowest I can go is ${floor}.",
+        "That offer is quite a bit lower than where I can go. Let's work together to find a price that makes sense for both of us.",
+        "I appreciate the offer, but {product} has premium quality that commands a fair price. What's the best you can do?",
+        "I understand you're looking for value, but I can't go that low. How about we meet somewhere in the middle?",
     ]
     
     SESSION_EXPIRED_TEMPLATES = [
@@ -395,12 +395,12 @@ class ConversationAgent:
         context: ConversationContext,
         floor_price: Optional[Decimal],
     ) -> str:
-        """Generate response for constraint violation."""
+        """Generate response for constraint violation — NEVER reveal floor price."""
         template = self.CONSTRAINT_VIOLATION_TEMPLATES[0]
         
         return template.format(
             buyer_offer=self._format_price(context.buyer_offered),
-            floor=self._format_price(floor_price or decision.counter_offer_price),
+            product=context.product_name,
         )
     
     def _get_phase(self, current_round: int, max_rounds: int) -> str:

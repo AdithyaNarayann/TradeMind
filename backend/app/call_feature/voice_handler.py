@@ -38,6 +38,29 @@ MAX_AUDIO_CHUNK_B64 = 90_000
 # Silence timeout: auto-flush STT if no audio received for this duration
 SILENCE_TIMEOUT_S = 1.5
 
+# Filler words and short utterances to ignore in voice mode
+# These are common STT artifacts that shouldn't trigger a full response
+_FILLER_WORDS = {
+    "hmm", "hm", "um", "uh", "uhm", "ah", "oh", "ok", "okay",
+    "mmm", "mhm", "mmhmm", "uh huh", "yeah", "yep", "yup",
+    "right", "sure", "alright", "hey", "hi", "hello", "huh",
+    "so", "well", "like", "in the", "uh the", "the", "a",
+    "i see", "got it", "interesting", "go on", "continue",
+}
+
+
+def _is_filler(text: str) -> bool:
+    """Check if text is just filler/noise that shouldn't trigger a response."""
+    cleaned = text.lower().strip().rstrip('.!?,;:')
+    # Short text (< 4 real words) that matches filler
+    if cleaned in _FILLER_WORDS:
+        return True
+    # Very short utterances (1-2 words, < 8 chars) are likely noise
+    words = cleaned.split()
+    if len(words) <= 2 and len(cleaned) < 8:
+        return True
+    return False
+
 # Split AI text into sentences for streaming TTS
 _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+|(?<=\n)')
 
@@ -88,6 +111,7 @@ class VoiceCallHandler:
         # State
         self.is_active = False
         self.is_ai_speaking = False
+        self.is_processing = False  # Guard against duplicate processing
         self.call_start_time = None
         self._tasks = []
         self._tts_queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -235,6 +259,16 @@ class VoiceCallHandler:
                         if self.is_ai_speaking:
                             await self._handle_interrupt()
 
+                        # Skip filler words — don't trigger a full response
+                        if _is_filler(transcript):
+                            logger.debug("skipping_filler", text=transcript)
+                            continue
+
+                        # Skip if already processing a previous utterance
+                        if self.is_processing:
+                            logger.debug("skipping_while_processing", text=transcript)
+                            continue
+
                         # Process through negotiation engine
                         await self._process_user_utterance(transcript)
 
@@ -250,6 +284,7 @@ class VoiceCallHandler:
 
     async def _process_user_utterance(self, text: str):
         """Send transcribed text to the negotiation engine and queue AI response."""
+        self.is_processing = True
         await self._send_client({
             "type": "status",
             "status": "processing",
@@ -305,6 +340,8 @@ class VoiceCallHandler:
                 "type": "error",
                 "message": "Failed to process your message. Please try again.",
             })
+        finally:
+            self.is_processing = False
 
     async def _tts_send_loop(self):
         """
