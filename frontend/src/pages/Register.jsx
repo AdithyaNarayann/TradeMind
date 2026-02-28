@@ -15,7 +15,10 @@ export default function Register() {
     const [loading, setLoading] = useState(false);
 
     const passwordChecks = {
-        length: password.length >= 6,
+        length: password.length >= 8,
+        uppercase: /[A-Z]/.test(password),
+        digit: /\d/.test(password),
+        special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
         match: password && confirmPassword && password === confirmPassword,
     };
 
@@ -27,8 +30,8 @@ export default function Register() {
             setError('Please fill in all fields');
             return;
         }
-        if (!passwordChecks.length) {
-            setError('Password must be at least 6 characters');
+        if (!passwordChecks.length || !passwordChecks.uppercase || !passwordChecks.digit || !passwordChecks.special) {
+            setError('Password must be at least 8 characters with uppercase, digit, and special character');
             return;
         }
         if (!passwordChecks.match) {
@@ -145,7 +148,7 @@ export default function Register() {
                                 type={showPassword ? 'text' : 'password'}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Min 6 characters"
+                                placeholder="Min 8 chars, A-Z, 0-9, !@#$"
                                 className="flex-1 px-4 py-3 bg-neo-cream text-neo-navy font-body placeholder:text-neo-navy/40 focus:outline-none focus:bg-white transition-colors"
                                 disabled={loading}
                             />
@@ -185,7 +188,25 @@ export default function Register() {
                             <div className="flex items-center gap-2 text-xs font-body">
                                 <CheckCircle className={`w-3 h-3 ${passwordChecks.length ? 'text-neo-teal' : 'text-neo-navy/30'}`} />
                                 <span className={passwordChecks.length ? 'text-neo-teal font-bold' : 'text-neo-navy/40'}>
-                                    At least 6 characters
+                                    At least 8 characters
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs font-body">
+                                <CheckCircle className={`w-3 h-3 ${passwordChecks.uppercase ? 'text-neo-teal' : 'text-neo-navy/30'}`} />
+                                <span className={passwordChecks.uppercase ? 'text-neo-teal font-bold' : 'text-neo-navy/40'}>
+                                    One uppercase letter
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs font-body">
+                                <CheckCircle className={`w-3 h-3 ${passwordChecks.digit ? 'text-neo-teal' : 'text-neo-navy/30'}`} />
+                                <span className={passwordChecks.digit ? 'text-neo-teal font-bold' : 'text-neo-navy/40'}>
+                                    One digit
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs font-body">
+                                <CheckCircle className={`w-3 h-3 ${passwordChecks.special ? 'text-neo-teal' : 'text-neo-navy/30'}`} />
+                                <span className={passwordChecks.special ? 'text-neo-teal font-bold' : 'text-neo-navy/40'}>
+                                    One special character (!@#$%^&*)
                                 </span>
                             </div>
                             {confirmPassword && (

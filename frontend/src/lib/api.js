@@ -13,7 +13,12 @@ export async function registerUser(fullName, email, password) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.detail || 'Registration failed');
+    // Handle validation errors (422) with details array
+    if (data.details && Array.isArray(data.details)) {
+      const msgs = data.details.map(d => d.message).join('; ');
+      throw new Error(msgs || data.message || 'Registration failed');
+    }
+    throw new Error(data.detail || data.message || 'Registration failed');
   }
   return data;
 }
@@ -26,7 +31,7 @@ export async function loginUser(email, password) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.detail || 'Login failed');
+    throw new Error(data.detail || data.message || 'Login failed');
   }
   return data;
 }
