@@ -180,14 +180,20 @@ export default function useVoiceCall({ sessionId }) {
         // 1. Validate session
         try {
             const resp = await fetch(`${VOICE_API_BASE}/api/v1/voice/validate/${sessionId}`);
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                setError(data.error || 'Session not found. Please start a new negotiation.');
+                setCallStatus('idle');
+                return;
+            }
             const data = await resp.json();
             if (!data.valid) {
-                setError(data.error || 'Invalid session');
+                setError(data.error || 'Session expired. Please start a new negotiation.');
                 setCallStatus('idle');
                 return;
             }
         } catch {
-            setError('Cannot reach voice server');
+            setError('Cannot reach voice server. Make sure the backend is running.');
             setCallStatus('idle');
             return;
         }
