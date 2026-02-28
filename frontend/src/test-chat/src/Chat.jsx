@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle, Package, Search, ChevronDown, Database, Edit3 } from 'lucide-react';
+import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle, Package, Search, ChevronDown, Database, Edit3, PhoneCall } from 'lucide-react';
 import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession, dbSaveCallbackRequest } from './api';
 import { getProducts } from '../../lib/productStore';
+import { VoiceCall } from '../../call-feature';
 import './Chat.css';
 
 export default function Chat() {
@@ -42,6 +43,9 @@ export default function Chat() {
     const [callbackSaving, setCallbackSaving] = useState(false);
     const [finalNegotiationStatus, setFinalNegotiationStatus] = useState(null);
     const [finalDealPrice, setFinalDealPrice] = useState(null);
+
+    // Voice call state
+    const [showVoiceCall, setShowVoiceCall] = useState(false);
 
     const messagesEndRef = useRef(null);
 
@@ -727,6 +731,17 @@ export default function Chat() {
                         <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
                             Cost ${config.costPrice}
                         </span>
+                        {/* Voice Call Button in Header */}
+                        {sessionId && !negotiationEnded && (
+                            <button
+                                onClick={() => setShowVoiceCall(true)}
+                                className="flex items-center gap-1.5 bg-neo-orange px-3 py-1 border-2 border-neo-cream font-bold text-xs text-neo-navy hover:bg-neo-orange/80 transition-all"
+                                title="Start voice negotiation"
+                            >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                                CALL
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>
@@ -913,6 +928,17 @@ export default function Chat() {
                 </div>
             )}
 
+            {/* Voice Call Overlay */}
+            {showVoiceCall && sessionId && (
+                <VoiceCall
+                    sessionId={sessionId}
+                    config={config}
+                    selectedProduct={selectedProduct}
+                    onClose={() => setShowVoiceCall(false)}
+                    onMessage={(msg) => setMessages(prev => [...prev, msg])}
+                />
+            )}
+
             {!negotiationEnded && (
                 <footer className="bg-neo-cream border-t-4 border-neo-navy p-4">
                     <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
@@ -925,6 +951,16 @@ export default function Chat() {
                                 className="flex-1 px-4 py-3 border-3 border-neo-navy bg-white text-neo-navy placeholder-neo-navy/50 focus:outline-none font-body"
                                 disabled={loading || !sessionId}
                             />
+                            {/* Voice Call Button in Footer */}
+                            <button
+                                type="button"
+                                onClick={() => setShowVoiceCall(true)}
+                                disabled={loading || !sessionId}
+                                className={"neo-button px-4 py-3 font-bold flex items-center gap-2 " + (loading || !sessionId ? 'bg-neo-navy/30 opacity-50 cursor-not-allowed' : 'bg-neo-teal text-neo-cream hover:bg-neo-teal/90 border-3 border-neo-navy')}
+                                title="Start voice call"
+                            >
+                                <PhoneCall className="w-5 h-5" />
+                            </button>
                             <button
                                 type="submit"
                                 disabled={loading || !sessionId || !inputValue.trim()}
