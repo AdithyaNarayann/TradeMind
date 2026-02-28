@@ -336,49 +336,134 @@ class NegotiationEngine:
             except Exception as e:
                 logger.error("chat_understanding_error", error=str(e))
 
-        # Fallback: try regex extraction (only explicit price patterns, not random numbers)
+        # Fallback: try regex extraction — supports $50, "50 dollars", spoken numbers, etc.
         import re
-        # Match: $50, $50.00, "50 dollars", "I offer 50", etc.
+
+        # Convert spoken numbers to digits before regex
+        _SPOKEN_NUMBERS = {
+            'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+            'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+            'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
+            'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
+            'eighteen': '18', 'nineteen': '19', 'twenty': '20', 'thirty': '30',
+            'forty': '40', 'fifty': '50', 'sixty': '60', 'seventy': '70',
+            'eighty': '80', 'ninety': '90', 'hundred': '100',
+        }
+
+        def _spoken_to_number(text: str) -> float | None:
+            """Convert spoken number phrases to numeric value. e.g. 'eighty five' -> 85.0"""
+            words = text.lower().split()
+            total = 0.0
+            found_any = False
+            for word in words:
+                word = word.strip('.,!?')
+                if word in _SPOKEN_NUMBERS:
+                    val = float(_SPOKEN_NUMBERS[word])
+                    if val == 100 and found_any:
+                        total *= 100  # "two hundred" = 2 * 100
+                    else:
+                        total += val
+                    found_any = True
+            return total if found_any and total > 0 else None
+
+        msg_text_lower = chat_message.message.lower()
+
+        # Try spoken number extraction first (catches "eighty five dollars", "fifty US dollars")
+        spoken_price = None
+        spoken_match = re.search(
+            r'((?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
+            r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|'
+            r'forty|fifty|sixty|seventy|eighty|ninety|hundred)(?:\s+(?:zero|one|two|three|'
+            r'four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|'
+            r'sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|'
+            r'eighty|ninety|hundred))*)',
+            msg_text_lower,
+            re.IGNORECASE,
+        )
+        if spoken_match:
+            spoken_price = _spoken_to_number(spoken_match.group(1))
+
+        # Try digit-based regex patterns
         price_match = re.search(
             r'(?:\$\s*)(\d+(?:\.\d{1,2})?)'
             r'|(?:offer|pay|bid|price|budget|give|do)\s+(?:\$\s*)?(\d+(?:\.\d{1,2})?)'
-            r'|(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|per\s+unit)',
+            r'|(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|per\s+unit|us\s+dollars?)',
             chat_message.message,
             re.IGNORECASE,
         )
+        digit_price = None
         if price_match:
             price_str = price_match.group(1) or price_match.group(2) or price_match.group(3)
-            price = float(price_str) if price_str else 0
-            if price > 0:
-                buyer_offer = BuyerOffer(
-                    offered_price=Decimal(str(price)),
-                    message=chat_message.message,
-                )
-                turn_response = self.process_turn(session_id, buyer_offer)
-                return ChatResponse(
-                    session_id=session_id,
-                    message=turn_response.message,
-                    has_price_offer=True,
-                    extracted_price=Decimal(str(price)),
-                    round_number=turn_response.round_number,
-                    status=turn_response.status,
-                    pricing=turn_response.pricing,
-                    can_continue=turn_response.can_continue,
-                    rounds_remaining=turn_response.rounds_remaining,
-                )
+            digit_price = float(price_str) if price_str else None
 
-        # No price found and LLM failed — varied engaging fallback
-        fallback_messages = [
-            f"I'm really excited to talk to you about {session.product.product_name}! It's one of our best sellers. At ${current_offer} per unit, you're getting incredible value — what price were you thinking?",
-            f"Great question! {session.product.product_name} has been flying off the shelves lately. I'd love to work out a deal with you — go ahead and throw out a number!",
-            f"You know what, {session.product.product_name} is genuinely one of the best products we carry. The quality really speaks for itself at ${current_offer}. What's your budget looking like?",
-            f"I hear you! Let me tell you, customers who've bought {session.product.product_name} keep coming back for more. The value at ${current_offer} is hard to beat — but I'm open to discussing. What did you have in mind?",
-            f"Absolutely, let's find a deal that works for both of us! {session.product.product_name} at ${current_offer} is already competitive, but go ahead — give me your best offer and let's see what we can do.",
-            f"That's what I love about negotiating {session.product.product_name} — everyone wants it because the quality is outstanding. We're at ${current_offer} right now. What price would make you pull the trigger?",
-        ]
+        # Use digit price if found, else spoken price
+        extracted_price = digit_price or spoken_price
+
+        if extracted_price and extracted_price > 0:
+            buyer_offer = BuyerOffer(
+                offered_price=Decimal(str(extracted_price)),
+                message=chat_message.message,
+            )
+            turn_response = self.process_turn(session_id, buyer_offer)
+            return ChatResponse(
+                session_id=session_id,
+                message=turn_response.message,
+                has_price_offer=True,
+                extracted_price=Decimal(str(extracted_price)),
+                round_number=turn_response.round_number,
+                status=turn_response.status,
+                pricing=turn_response.pricing,
+                can_continue=turn_response.can_continue,
+                rounds_remaining=turn_response.rounds_remaining,
+            )
+
+        # No price found and LLM failed — use a contextual dynamic fallback
+        # Instead of hardcoded messages, build one that responds to what user actually said
+        product = session.product.product_name
+        msg_lower = msg_text_lower.strip()
+
+        # Detect profanity / rudeness
+        profanity_words = {'fuck', 'shit', 'damn', 'ass', 'hell', 'crap', 'bullshit', 'wtf', 'stfu'}
+        has_profanity = bool(set(msg_lower.split()) & profanity_words)
+
+        if has_profanity:
+            fallback_options = [
+                f"Hey, I get it \u2014 negotiations can get intense! But I promise you, {product} is worth every penny. Let\u2019s find a price that makes us both happy. What\u2019s your number?",
+                f"Whoa, let\u2019s keep it friendly! I\u2019m on your side here \u2014 I genuinely want you to walk away with {product} at a price you feel great about. What works for you?",
+                f"I hear the frustration! Look, I\u2019m flexible \u2014 just throw me a number and let\u2019s see if we can make {product} yours today.",
+            ]
+        elif any(w in msg_lower for w in ['hello', 'hi ', 'hey', 'how are', 'howdy']):
+            fallback_options = [
+                f"Hey there! Great to chat with you. So you\u2019re looking at {product} \u2014 we\u2019re at ${current_offer} right now. Got a budget in mind?",
+                f"Hi! Welcome! I\u2019d love to work out a great deal on {product} for you. What kind of price range are we talking?",
+            ]
+        elif any(w in msg_lower for w in ['expensive', 'too much', 'high', 'lower', 'cheaper', 'better price', 'discount']):
+            fallback_options = [
+                f"I understand the concern on price! Here\u2019s the thing \u2014 {product} genuinely delivers on quality. But I\u2019m open to negotiating. What price did you have in mind?",
+                f"Fair point! Let me see what I can do. Give me your best offer for {product} and I\u2019ll work with you on it.",
+            ]
+        elif any(w in msg_lower for w in ['finalize', 'close', 'deal', 'done', 'agree', 'accept', 'okay', 'ok ']):
+            fallback_options = [
+                f"Love the energy! Let\u2019s close this. If you\u2019re good with ${current_offer} for {product}, we\u2019ve got a deal. Or give me your number!",
+                f"Sounds like we\u2019re close! Where exactly are you at price-wise? Let\u2019s lock this in.",
+            ]
+        else:
+            round_num = session.pricing_state.current_round if session.pricing_state else 0
+            max_rounds = session.strategy.max_rounds
+            if round_num > max_rounds * 0.6:
+                fallback_options = [
+                    f"We\u2019re getting close to the end here \u2014 I\u2019d hate for you to miss out on {product}. What\u2019s your best price? Let\u2019s make this happen.",
+                    f"Time\u2019s running short! I really want to get {product} to you. Give me a number and let\u2019s close this deal.",
+                ]
+            else:
+                fallback_options = [
+                    f"I\u2019m all ears! What price would make {product} a no-brainer for you? I\u2019m ready to talk numbers.",
+                    f"So what are you thinking for {product}? I\u2019m flexible \u2014 just need a number to work with.",
+                    f"Let\u2019s get down to business! What\u2019s your offer for {product}? I bet we can find common ground.",
+                ]
         return ChatResponse(
             session_id=session_id,
-            message=random.choice(fallback_messages),
+            message=random.choice(fallback_options),
             has_price_offer=False,
         )
 

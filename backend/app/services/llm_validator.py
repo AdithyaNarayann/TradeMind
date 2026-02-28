@@ -40,10 +40,10 @@ class LLMValidator:
     """
     
     # Maximum allowed response length (characters)
-    MAX_RESPONSE_LENGTH = 500
+    MAX_RESPONSE_LENGTH = 800
     
     # Minimum response length
-    MIN_RESPONSE_LENGTH = 10
+    MIN_RESPONSE_LENGTH = 5
     
     # Forbidden phrases (LLM should not promise things it can't)
     FORBIDDEN_PHRASES = [
