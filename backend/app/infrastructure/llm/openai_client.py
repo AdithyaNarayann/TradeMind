@@ -207,3 +207,8 @@ def get_llm_client() -> OpenRouterClient:
     if _client is None:
         _client = OpenRouterClient()
     return _client
+
+
+def shutdown_llm_pool():
+    """Shutdown the shared thread pool on app exit."""
+    _sync_pool.shutdown(wait=False)

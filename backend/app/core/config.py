@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # Security
     jwt_secret: str = ""  # REQUIRED — set in .env
     encryption_key: str = ""  # For encrypting PII at rest
-    allowed_origins: str = "http://localhost:5173"  # Comma-separated origins
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"  # Comma-separated origins
     
     # MySQL Database
     mysql_host: str = "127.0.0.1"

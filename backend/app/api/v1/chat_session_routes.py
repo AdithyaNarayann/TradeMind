@@ -36,6 +36,24 @@ class StartSessionRequest(BaseModel):
     max_rounds: int = 10
     negotiate_session_id: Optional[str] = None  # UUID from negotiation engine
 
+    @field_validator("product_name")
+    @classmethod
+    def sanitize_product_name(cls, v):
+        """Strip whitespace and limit length."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Product name cannot be empty")
+        if len(v) > 200:
+            raise ValueError("Product name must be under 200 characters")
+        return v
+
+    @field_validator("max_rounds")
+    @classmethod
+    def validate_max_rounds(cls, v):
+        if v < 1 or v > 50:
+            raise ValueError("max_rounds must be between 1 and 50")
+        return v
+
 class SaveMessageRequest(BaseModel):
     round_number: int = 0
     user_message: Optional[str] = None
@@ -43,6 +61,23 @@ class SaveMessageRequest(BaseModel):
     offered_price: Optional[float] = None
     counter_price: Optional[float] = None
     decision: Optional[str] = None  # accept / counter / reject / chat
+
+    @field_validator("user_message", "bot_reply", mode="before")
+    @classmethod
+    def truncate_long_messages(cls, v):
+        """Prevent extremely long messages from bloating the DB."""
+        if isinstance(v, str) and len(v) > 10000:
+            return v[:10000] + "... [truncated]"
+        return v
+
+    @field_validator("decision", mode="before")
+    @classmethod
+    def validate_decision(cls, v):
+        """Only allow known decision values."""
+        valid = {None, "accept", "counter", "reject", "chat"}
+        if v not in valid:
+            return "chat"
+        return v
 
 class CloseSessionRequest(BaseModel):
     status: str                         # accepted / rejected / expired / buyer_walked
@@ -384,11 +419,23 @@ async def close_session(session_id: int, body: CloseSessionRequest, user=Depends
     async with get_conn() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s",
+                "SELECT id, status FROM chat_sessions WHERE id = %s AND user_id = %s",
                 (session_id, user["id"]),
             )
-            if not await cur.fetchone():
+            row = await cur.fetchone()
+            if not row:
                 raise HTTPException(404, "Session not found")
+            
+            # Edge case: prevent double-close
+            current_status = row[1]
+            if current_status and current_status != "active":
+                _session_logger.warning(
+                    "session_already_closed",
+                    session_id=session_id,
+                    current_status=current_status,
+                    attempted_status=body.status,
+                )
+                return {"closed": True, "session_id": session_id, "already_closed": True}
 
             await cur.execute(
                 """UPDATE chat_sessions
@@ -406,6 +453,16 @@ async def close_session(session_id: int, body: CloseSessionRequest, user=Depends
                  body.seller_last_offer, body.rounds_used, session_id),
             )
             await conn.commit()
+
+    _session_logger.info(
+        "session_closed",
+        session_id=session_id,
+        user_id=user["id"],
+        status=body.status,
+        deal_closed=body.deal_closed,
+        final_price=body.final_price,
+        rounds_used=body.rounds_used,
+    )
 
     # ── Fire deal-outcome email (non-blocking) ──
     if body.status in ("accepted", "rejected"):

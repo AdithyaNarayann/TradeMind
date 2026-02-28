@@ -440,22 +440,28 @@ class NegotiationEngine:
 
         state = session.pricing_state
 
-        # Calculate concession
-        total_concession = session.initial_offer - (session.final_price or session.initial_offer)
-        concession_pct = (total_concession / session.initial_offer * 100
-                          if session.initial_offer > 0 else Decimal("0"))
+        # Calculate concession (guard against zero initial offer)
+        if session.initial_offer and session.initial_offer > 0:
+            total_concession = session.initial_offer - (session.final_price or session.initial_offer)
+            concession_pct = (total_concession / session.initial_offer * 100)
+        else:
+            total_concession = Decimal("0")
+            concession_pct = Decimal("0")
 
-        # Calculate profit
+        # Calculate profit (guard against zero final price)
         gross_profit = None
         profit_margin = None
-        if session.final_price:
+        if session.final_price and session.final_price > 0:
             gross_profit = session.final_price - session.product.cost_price
-            if session.final_price > 0:
-                profit_margin = (gross_profit / session.final_price * 100)
+            profit_margin = (gross_profit / session.final_price * 100)
 
-        # Calculate efficiency
+        # Calculate efficiency (guard against zero max rounds)
         rounds_used = state.current_round if state else 0
-        efficiency = Decimal(str(1 - (rounds_used / session.strategy.max_rounds)))
+        max_rounds = session.strategy.max_rounds
+        if max_rounds > 0:
+            efficiency = Decimal(str(1 - (rounds_used / max_rounds)))
+        else:
+            efficiency = Decimal("0")
 
         # Count constraint violations
         violations = len([v for v in state.buyer_history

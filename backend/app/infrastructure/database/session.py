@@ -2,10 +2,12 @@
 MySQL async connection pool using aiomysql.
 """
 import aiomysql
+import structlog
 from contextlib import asynccontextmanager
 from ...core.config import get_settings
 
 _settings = get_settings()
+_logger = structlog.get_logger("database")
 
 # SECURITY: Read all DB config from pydantic Settings (which loads .env)
 MYSQL_HOST = _settings.mysql_host
@@ -29,17 +31,23 @@ async def get_pool() -> aiomysql.Pool:
     """Get or create the global connection pool."""
     global _pool
     if _pool is None:
-        _pool = await aiomysql.create_pool(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            db=MYSQL_DB,
-            autocommit=True,
-            minsize=1,
-            maxsize=10,
-            charset="utf8mb4",
-        )
+        try:
+            _pool = await aiomysql.create_pool(
+                host=MYSQL_HOST,
+                port=MYSQL_PORT,
+                user=MYSQL_USER,
+                password=MYSQL_PASSWORD,
+                db=MYSQL_DB,
+                autocommit=True,
+                minsize=1,
+                maxsize=10,
+                charset="utf8mb4",
+                pool_recycle=3600,  # Reconnect stale connections after 1 hour
+            )
+            _logger.info("mysql_pool_created", host=MYSQL_HOST, port=MYSQL_PORT, db=MYSQL_DB)
+        except Exception as e:
+            _logger.error("mysql_pool_creation_failed", error=str(e), host=MYSQL_HOST, port=MYSQL_PORT)
+            raise
     return _pool
 
 
