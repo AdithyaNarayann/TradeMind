@@ -21,6 +21,7 @@ from .api import (
     limiter,
     rate_limit_exceeded_handler,
     ErrorHandlerMiddleware,
+    SecurityHeadersMiddleware,
     validation_exception_handler,
     http_exception_handler,
     value_error_handler,
@@ -140,6 +141,9 @@ def create_app() -> FastAPI:
     
     # Error handler middleware
     app.add_middleware(ErrorHandlerMiddleware)
+    
+    # Security headers middleware
+    app.add_middleware(SecurityHeadersMiddleware)
     
     # CORS middleware — SECURITY: use configured origins, never wildcard with credentials
     allowed_origins = [

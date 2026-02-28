@@ -13,6 +13,7 @@ from .error_handler import (
     http_exception_handler,
     value_error_handler,
 )
+from .security_headers import SecurityHeadersMiddleware
 
 __all__ = [
     "limiter",
@@ -25,4 +26,5 @@ __all__ = [
     "validation_exception_handler",
     "http_exception_handler",
     "value_error_handler",
+    "SecurityHeadersMiddleware",
 ]

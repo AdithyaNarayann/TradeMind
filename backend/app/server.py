@@ -18,6 +18,12 @@ def main():
         port=settings.port,
         reload=settings.debug,
         log_level=settings.log_level.lower(),
+        # SECURITY: Limit request body size to 10 MB to prevent DoS
+        limit_max_request_line=8190,
+        # SECURITY: Limit concurrent connections
+        limit_concurrency=100,
+        # SECURITY: Set header size limits
+        h11_max_incomplete_event_size=16384,
     )
 
 
