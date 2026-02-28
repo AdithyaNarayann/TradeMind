@@ -226,7 +226,7 @@ export default function useVoiceCall({ sessionId }) {
     // WebSocket connect (supports reconnection)
     // ────────────────────────────────────────────────────────────────
     const connectWebSocket = useCallback(async (stream) => {
-        const token = localStorage.getItem('token') || '';
+        const token = localStorage.getItem('trademind_token') || '';
         const wsUrl = `${VOICE_WS_BASE}/api/v1/voice/ws/${sessionId}?token=${encodeURIComponent(token)}`;
 
         try {
