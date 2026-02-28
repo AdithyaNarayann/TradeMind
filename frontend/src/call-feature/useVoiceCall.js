@@ -130,7 +130,7 @@ function rawPCMtoAudioBuffer(audioCtx, pcmBytes, sampleRate) {
 }
 
 // ── Constants ──────────────────────────────────────────────────────
-const MAX_AUDIO_QUEUE = 12;       // Max queued audio chunks before dropping oldest
+const MAX_AUDIO_QUEUE = 30;       // Max queued audio chunks (increased for longer AI responses)
 const RECONNECT_MAX_ATTEMPTS = 3;
 const RECONNECT_BASE_DELAY = 500; // ms
 const PING_INTERVAL = 5000;       // ms
@@ -591,6 +591,7 @@ export default function useVoiceCall({ sessionId }) {
         const tick = () => {
             if (!analyser || !isPlayingRef.current) {
                 setAiEnergy(0);
+                energyRafRef.current = null;
                 return;
             }
             analyser.getByteTimeDomainData(data);
@@ -609,6 +610,11 @@ export default function useVoiceCall({ sessionId }) {
         audioQueueRef.current = [];
         isPlayingRef.current = false;
         setAiEnergy(0);
+        // Cancel RAF loop before closing context
+        if (energyRafRef.current) {
+            cancelAnimationFrame(energyRafRef.current);
+            energyRafRef.current = null;
+        }
         if (playbackCtxRef.current && playbackCtxRef.current.state !== 'closed') {
             playbackCtxRef.current.close().catch(() => {});
             playbackCtxRef.current = null;

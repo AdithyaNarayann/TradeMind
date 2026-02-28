@@ -175,7 +175,8 @@ async def voice_call_websocket(websocket: WebSocket, session_id: str, token: str
     except Exception as e:
         logger.error("voice_call_fatal", session_id=session_id, error=str(e))
     finally:
-        await handler.cleanup()
+        # Note: handler.start() already calls cleanup() in its own finally block.
+        # We only close the WebSocket here — no double cleanup.
         try:
             await websocket.close()
         except Exception:

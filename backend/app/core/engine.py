@@ -314,11 +314,19 @@ class NegotiationEngine:
             except Exception as e:
                 logger.error("chat_understanding_error", error=str(e))
 
-        # Fallback: try simple regex extraction
+        # Fallback: try regex extraction (only explicit price patterns, not random numbers)
         import re
-        match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
-        if match:
-            price = float(match.group(1))
+        # Match: $50, $50.00, "50 dollars", "I offer 50", etc.
+        price_match = re.search(
+            r'(?:\$\s*)(\d+(?:\.\d{1,2})?)'
+            r'|(?:offer|pay|bid|price|budget|give|do)\s+(?:\$\s*)?(\d+(?:\.\d{1,2})?)'
+            r'|(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|per\s+unit)',
+            chat_message.message,
+            re.IGNORECASE,
+        )
+        if price_match:
+            price_str = price_match.group(1) or price_match.group(2) or price_match.group(3)
+            price = float(price_str) if price_str else 0
             if price > 0:
                 buyer_offer = BuyerOffer(
                     offered_price=Decimal(str(price)),
