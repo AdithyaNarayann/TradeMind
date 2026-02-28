@@ -148,7 +148,8 @@ async def create_product_route(body: ProductCreate, user=Depends(get_current_use
 @router.put("/{product_id}", response_model=ProductOut)
 async def update_product_route(product_id: int, body: ProductUpdate, user=Depends(get_current_user)):
     """Update a product (only if owned by current user)."""
-    # Build dynamic SET clause from non-None fields
+    # SECURITY: Whitelist allowed DB columns to prevent injection via field names
+    ALLOWED_COLUMNS = set(field_map.values())
     field_map = {
         "name": "name", "base_price": "base_price", "cost_price": "cost_price",
         "min_acceptable_price": "min_acceptable_price", "max_loss_percent": "max_loss_percent",
@@ -158,6 +159,7 @@ async def update_product_route(product_id: int, body: ProductUpdate, user=Depend
     for py_field, db_col in field_map.items():
         val = getattr(body, py_field)
         if val is not None:
+            assert db_col in ALLOWED_COLUMNS, f"Invalid column: {db_col}"
             updates[db_col] = val
 
     if not updates:

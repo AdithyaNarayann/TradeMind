@@ -116,7 +116,7 @@ async def start_session(body: StartSessionRequest, user=Depends(get_current_user
                 await send_notification_email(user["id"], subject, html)
         except Exception as e:
             _email_logger.error("new_session_email_failed", error=str(e))
-    asyncio.ensure_future(_send_new_session_email())
+    asyncio.create_task(_send_new_session_email())
 
     return {"id": session_id, "status": "active"}
 
@@ -343,7 +343,7 @@ async def close_session(session_id: int, body: CloseSessionRequest, user=Depends
                     await send_notification_email(user["id"], subject, html)
             except Exception as e:
                 _email_logger.error("deal_email_failed", error=str(e))
-        asyncio.ensure_future(_send_deal_email())
+        asyncio.create_task(_send_deal_email())
 
     return {"closed": True, "session_id": session_id}
 
