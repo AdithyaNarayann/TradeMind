@@ -79,14 +79,19 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS configuration
-# In production, replace "*" with specific origins
+# CORS configuration — SECURITY: use env-based origins, not wildcard
+import os as _os
+_allowed_origins = [
+    o.strip() for o in
+    _os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Include analytics routes

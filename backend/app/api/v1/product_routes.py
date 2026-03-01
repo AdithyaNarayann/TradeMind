@@ -154,10 +154,13 @@ async def update_product_route(product_id: int, body: ProductUpdate, user=Depend
         "min_acceptable_price": "min_acceptable_price", "max_loss_percent": "max_loss_percent",
         "mode": "mode", "max_rounds": "max_rounds", "category": "category", "status": "status",
     }
+    # SECURITY: Whitelist allowed DB columns to prevent injection via field names
+    ALLOWED_COLUMNS = set(field_map.values())
     updates = {}
     for py_field, db_col in field_map.items():
         val = getattr(body, py_field)
         if val is not None:
+            assert db_col in ALLOWED_COLUMNS, f"Invalid column: {db_col}"
             updates[db_col] = val
 
     if not updates:

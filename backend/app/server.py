@@ -18,6 +18,8 @@ def main():
         port=settings.port,
         reload=settings.debug,
         log_level=settings.log_level.lower(),
+        # SECURITY: Limit concurrent connections
+        limit_concurrency=100,
     )
 
 

@@ -27,21 +27,22 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             return response
         
         except Exception as exc:
-            # Log the error
+            # SECURITY: Always log full detail server-side, never to client
             logger.error(
                 "unhandled_exception",
                 path=request.url.path,
                 method=request.method,
                 error=str(exc),
-                traceback=traceback.format_exc() if settings.debug else None,
+                traceback=traceback.format_exc(),
             )
             
+            # SECURITY: Never expose raw exception details or stack traces
+            # to API consumers, even in debug mode
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": "internal_server_error",
-                    "message": "An unexpected error occurred",
-                    "detail": str(exc) if settings.debug else None,
+                    "message": "An unexpected error occurred. Please try again later.",
                 },
             )
 
