@@ -242,3 +242,4 @@ export function extractPrice(text) {
     const match = text.match(/\$?\s?(\d+(?:\.\d{1,2})?)/);
     return match ? parseFloat(match[1]) : null;
 }
+
