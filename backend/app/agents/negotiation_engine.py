@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional  
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TUNING — every magic number in the engine lives here
@@ -165,6 +165,12 @@ TUNING = {
     "min_acceptance_round_min_loss":        2,
     "min_acceptance_ratio_max_profit":      0.88,
     "min_acceptance_ratio_min_loss":        0.78,
+
+    # ── Last-round acceptance guard ───────────────────────────
+    #   On the final round, only accept if the buyer's offer is
+    #   at least this fraction of the last counter.  Prevents
+    #   accepting a lowball just because rounds ran out.
+    "last_round_min_counter_ratio":         0.90,
 
     # ── Redemption (unfreeze after genuine improvement) ────────
     "redemption_good_moves":                2,
@@ -1282,8 +1288,17 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         )
 
     # ── STEP 9: Last round ───────────────────────────────────
+    #   Accept only if the offer is close to the last counter.
+    #   Blindly accepting anything above floor lets a buyer who
+    #   negotiated nowhere near our price grab a huge discount.
     if state.current_round >= state.max_rounds:
-        if u_price >= state.dynamic_floor:
+        last_counter = (
+            state.counter_history[-1]
+            if state.counter_history
+            else state.bulk_target_price
+        )
+        min_accept = last_counter * TUNING["last_round_min_counter_ratio"]
+        if u_price >= min_accept:
             return _accept_result(state, u_price, ReasoningTag.LAST_ROUND_ACCEPT)
         return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
 

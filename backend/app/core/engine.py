@@ -200,7 +200,7 @@ class NegotiationEngine:
 
         # Step 2: Check termination conditions
         if self._should_terminate(session):
-            return self._terminate_session(session, NegotiationStatus.EXPIRED)
+            return self._terminate_session(session, NegotiationStatus.REJECTED)
 
         # Step 3: Increment round
         session.pricing_state.current_round += 1
@@ -218,6 +218,15 @@ class NegotiationEngine:
 
         # Step 5: Update state based on decision
         self._update_state(session, decision, buyer_offer)
+
+        # Step 5.5: Sync engine max_rounds back to orchestration.
+        #   The engine may extend max_rounds (e.g. post-redemption
+        #   protection or quantity change).  Keep the orchestration
+        #   in sync so _should_terminate, _determine_status, and
+        #   rounds_remaining all respect the extension.
+        eng = session.pricing_state.engine_state
+        if eng and eng.max_rounds > session.strategy.max_rounds:
+            session.strategy.max_rounds = eng.max_rounds
 
         # Step 6: Generate response message
         conv_context = ConversationContext(
@@ -815,8 +824,15 @@ class NegotiationEngine:
         """Check if session should terminate."""
         state = session.pricing_state
 
+        # Use engine's max_rounds when available (may be extended by
+        # redemption or quantity-change protection).
+        effective_max = session.strategy.max_rounds
+        eng = state.engine_state if state else None
+        if eng and eng.max_rounds > effective_max:
+            effective_max = eng.max_rounds
+
         # Max rounds reached
-        if state.current_round >= session.strategy.max_rounds:
+        if state.current_round >= effective_max:
             return True
 
         return False
@@ -826,7 +842,16 @@ class NegotiationEngine:
         session: NegotiationSession,
         status: NegotiationStatus,
     ) -> NegotiationTurnResponse:
-        """Terminate session and return final response."""
+        """Terminate session and return final response.
+
+        Called when _should_terminate fires (before the engine
+        processes the round).  Uses REJECTED — the negotiation
+        ran out of rounds without a deal.
+        """
+        # Override EXPIRED to REJECTED — "no deal after all rounds"
+        # is a rejection, not a passive timeout.
+        if status == NegotiationStatus.EXPIRED:
+            status = NegotiationStatus.REJECTED
         self.session_manager.close_session(session.session_id, status)
 
         conv_context = ConversationContext(
@@ -896,9 +921,14 @@ class NegotiationEngine:
         if decision.decision == OfferDecision.REJECT:
             return NegotiationStatus.REJECTED
 
-        # Check if this was the last round
-        if session.pricing_state.current_round >= session.strategy.max_rounds:
-            return NegotiationStatus.EXPIRED
+        # Check if this was the last round — "no deal" = REJECTED,
+        # not EXPIRED.  EXPIRED is reserved for TTL timeout.
+        effective_max = session.strategy.max_rounds
+        eng = session.pricing_state.engine_state if session.pricing_state else None
+        if eng and eng.max_rounds > effective_max:
+            effective_max = eng.max_rounds
+        if session.pricing_state.current_round >= effective_max:
+            return NegotiationStatus.REJECTED
 
         return NegotiationStatus.ACTIVE
 

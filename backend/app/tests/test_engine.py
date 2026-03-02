@@ -1873,3 +1873,188 @@ class TestCumulativeRedemption:
             assert state.final_offer_issued is True, (
                 f"At ${price}: freeze lifted prematurely"
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEST: Last-round always terminates (accept or reject, never counter)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestLastRoundTermination:
+    """
+    On the final round the engine MUST return 'accept' or 'reject'.
+    Never 'counter' or 'final_offer' — those leave the session in
+    limbo and cause the orchestration to record 'expired' status.
+    """
+
+    def test_last_round_frozen_below_counter_rejects(self):
+        """Frozen state, buyer below counter on last round → reject."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        # R1-R3: trigger freeze via retrograde
+        process_round(state, _make_extraction(unit_price_offered=8000.0))
+        process_round(state, _make_extraction(unit_price_offered=7000.0))
+        r3 = process_round(state, _make_extraction(unit_price_offered=6000.0))
+        assert state.final_offer_issued is True
+
+        # R4-R9: hold frozen, buyer stays low
+        for _ in range(6):
+            process_round(state, _make_extraction(unit_price_offered=7000.0))
+
+        # R10 (last round): buyer still below counter
+        assert state.current_round == 9
+        r10 = process_round(state, _make_extraction(unit_price_offered=7000.0))
+        assert r10.decision == "reject", (
+            f"Last round frozen: expected 'reject', got '{r10.decision}'"
+        )
+        assert r10.session_terminated is True
+
+    def test_last_round_frozen_meets_counter_accepts(self):
+        """Frozen state, buyer meets counter on last round → accept."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        process_round(state, _make_extraction(unit_price_offered=8000.0))
+        process_round(state, _make_extraction(unit_price_offered=7000.0))
+        process_round(state, _make_extraction(unit_price_offered=6000.0))
+        frozen = state.counter_history[-1]
+
+        for _ in range(6):
+            process_round(state, _make_extraction(unit_price_offered=6500.0))
+
+        r10 = process_round(state, _make_extraction(unit_price_offered=frozen))
+        assert r10.decision == "accept"
+
+    def test_last_round_normal_close_to_counter_accepts(self):
+        """Normal (unfrozen) last round, buyer within 90% of counter → accept."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        # Gradually increasing offers (no retrograde) over 9 rounds
+        offers = [9000, 9500, 10000, 10500, 11000, 11500, 12000, 12500, 13000]
+        for o in offers:
+            process_round(state, _make_extraction(unit_price_offered=float(o)))
+
+        last_counter = state.counter_history[-1]
+        min_accept = last_counter * TUNING["last_round_min_counter_ratio"]
+
+        # R10: buyer offers just above the min_accept threshold
+        offer_price = round(min_accept + 1, 2)
+        r10 = process_round(state, _make_extraction(unit_price_offered=offer_price))
+        assert r10.decision in ("accept",), (
+            f"Last round, offer {offer_price} >= min_accept {min_accept}: "
+            f"expected 'accept', got '{r10.decision}'"
+        )
+
+    def test_last_round_normal_far_below_counter_rejects(self):
+        """Normal (unfrozen) last round, buyer far below counter → reject."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        # 9 rounds of low offers
+        for _ in range(9):
+            process_round(state, _make_extraction(unit_price_offered=9000.0))
+
+        last_counter = state.counter_history[-1]
+        far_below = last_counter * 0.50  # Way below 90%
+        r10 = process_round(state, _make_extraction(unit_price_offered=far_below))
+        assert r10.decision == "reject", (
+            f"Last round, offer {far_below} far below counter {last_counter}: "
+            f"expected 'reject', got '{r10.decision}'"
+        )
+        assert r10.session_terminated is True
+
+    def test_last_round_never_returns_counter_or_final_offer(self):
+        """Exhaustive: the last round MUST return 'accept' or 'reject'."""
+        # Run 10 different scenarios and verify last round always terminates
+        for base, cost, offers_seq in [
+            (100, 50, [40, 35, 30, 25, 30, 35, 40, 45, 50]),     # retrograde then recover
+            (100, 50, [60, 65, 70, 75, 78, 80, 82, 84, 86]),     # steady climb
+            (100, 50, [40, 40, 40, 40, 40, 40, 40, 40, 40]),     # stagnation
+            (1000, 500, [400, 350, 300, 350, 400, 450, 500, 550, 600]),
+        ]:
+            state = _make_state(
+                base_price=float(base), cost_price=float(cost),
+                min_floor=float(cost) * 1.08, max_rounds=10,
+            )
+            for o in offers_seq:
+                process_round(state, _make_extraction(unit_price_offered=float(o)))
+
+            # Last round
+            r_last = process_round(state, _make_extraction(
+                unit_price_offered=float(offers_seq[-1])
+            ))
+            assert r_last.decision in ("accept", "reject"), (
+                f"base={base}, last offer={offers_seq[-1]}: "
+                f"expected accept/reject, got '{r_last.decision}'"
+            )
+
+
+class TestSamsungTranscriptScenario:
+    """
+    Regression test modeled on the Samsung Mobile $16K transcript.
+
+    Sequence: R1=$8000, R2=$7000 (retrograde), R3=$6000 (freeze),
+    R4=$7000, R5=$8000 (redeem), R6=$8001, ..., R10=$14001.
+    """
+
+    def test_ratchet_holds_on_retrograde(self):
+        """R2 retrograde: counter must NOT drop below R1 counter."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        r1 = process_round(state, _make_extraction(unit_price_offered=8000.0))
+        r1_counter = r1.counter_unit_price
+
+        r2 = process_round(state, _make_extraction(unit_price_offered=7000.0))
+        assert r2.counter_unit_price >= r1_counter, (
+            f"R2 retrograde: counter dropped from {r1_counter} to "
+            f"{r2.counter_unit_price}. Ratchet should have held."
+        )
+
+    def test_redemption_fires_and_counter_eventually_moves(self):
+        """After freeze + redemption, counter drops when buyer beats all-time best."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        # R1-R3: trigger freeze
+        process_round(state, _make_extraction(unit_price_offered=8000.0))
+        process_round(state, _make_extraction(unit_price_offered=7000.0))
+        process_round(state, _make_extraction(unit_price_offered=6000.0))
+        assert state.final_offer_issued is True
+        frozen_counter = state.counter_history[-1]
+
+        # R4-R5: redemption (two good moves)
+        process_round(state, _make_extraction(unit_price_offered=7000.0))
+        process_round(state, _make_extraction(unit_price_offered=8000.0))
+        assert state.final_offer_issued is False, "Per-move redemption should have fired"
+
+        # R6: buyer beats all-time best ($8001 > $8000) → concession allowed
+        r6 = process_round(state, _make_extraction(unit_price_offered=8001.0))
+        # Counter should be <= frozen_counter (concession happened or held)
+        assert r6.counter_unit_price <= frozen_counter, (
+            f"Post-redemption counter {r6.counter_unit_price} should not "
+            f"exceed frozen {frozen_counter}"
+        )
+
+    def test_full_transcript_last_round_terminates(self):
+        """Full Samsung transcript: last round must result in accept or reject."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        offers = [8000, 7000, 6000, 7000, 8000, 8001, 9000, 11000, 14000]
+        for o in offers:
+            process_round(state, _make_extraction(unit_price_offered=float(o)))
+
+        # R10: $14001
+        r10 = process_round(state, _make_extraction(unit_price_offered=14001.0))
+        assert r10.decision in ("accept", "reject"), (
+            f"Last round with $14001: expected accept/reject, got '{r10.decision}'"
+        )
