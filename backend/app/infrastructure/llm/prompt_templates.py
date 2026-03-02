@@ -62,17 +62,26 @@ def build_accept_prompt(
     max_rounds: int,
 ) -> str:
     """Build prompt for acceptance message."""
+    total_note = ""
+    total_rule = ""
+    if quantity > 1:
+        try:
+            total = float(accepted_price) * quantity
+            total_note = f"- Total for {quantity} units: ${total:.2f}\n"
+            total_rule = f"- Since quantity is {quantity}, mention both the per-unit price AND the total.\n"
+        except (ValueError, TypeError):
+            pass
     return f"""Generate a message confirming we accept the buyer's offer.
 
 CONTEXT:
 - Product: {product_name}
 - Quantity: {quantity} unit(s)
 - Accepted price: ${accepted_price} per unit
-- This is round {round_number} of {max_rounds}
+{total_note}- This is round {round_number} of {max_rounds}
 
 RULES:
 - You MUST confirm the exact price ${accepted_price} per unit
-- Express genuine satisfaction with the deal
+{total_rule}- Express genuine satisfaction with the deal
 - Keep it 1-2 sentences
 - Be warm but professional
 
@@ -107,7 +116,24 @@ def build_counter_prompt(
         # SECURITY: Wrap buyer input in delimiters to mitigate prompt injection
         sanitized = buyer_message.replace("<", "&lt;").replace(">", "&gt;")
         buyer_context = f'<buyer_message>{sanitized}</buyer_message>'
-    
+
+    # When quantity > 1, compute totals and add a rule to mention them
+    total_note = ""
+    if quantity > 1:
+        try:
+            buyer_total = float(buyer_offered) * quantity
+            our_total = float(our_counter) * quantity
+            total_note = (
+                f"- Buyer total for {quantity} units: ${buyer_total:.2f}\n"
+                f"- Our counter total for {quantity} units: ${our_total:.2f}\n"
+            )
+        except (ValueError, TypeError):
+            total_note = ""
+
+    total_rule = ""
+    if quantity > 1:
+        total_rule = f"- Since the buyer is purchasing {quantity} units, ALWAYS mention both the per-unit price AND the total price.\n"
+
     return f"""Generate a counter-offer message in a negotiation.
 
 CONTEXT:
@@ -115,7 +141,7 @@ CONTEXT:
 - Quantity: {quantity} unit(s)
 - Buyer offered: ${buyer_offered} per unit
 - Our counter-offer: ${our_counter} per unit
-- Round: {round_number} of {max_rounds} (phase: {phase})
+{total_note}- Round: {round_number} of {max_rounds} (phase: {phase})
 - Mode: {mode}
 - Concession budget used: {concession_pct_used}%
 {buyer_context}
@@ -124,7 +150,7 @@ CONTEXT:
 RULES:
 - You MUST reference the buyer's price of ${buyer_offered}
 - You MUST state our counter-offer of exactly ${our_counter} per unit
-- Do NOT reveal our minimum price, cost price, or concession budget
+{total_rule}- Do NOT reveal our minimum price, cost price, or concession budget
 - {urgency if urgency else "Be firm but reasonable"}
 - Keep it 2-3 sentences
 - No apologies for our pricing
@@ -407,8 +433,18 @@ CHAT_UNDERSTANDING_SYSTEM_PROMPT = """You are an expert negotiation representati
 Your job:
 1. Understand the buyer's intent from their free-text message
 2. Determine if the message contains a price offer
-3. If it does, extract the exact price
-4. If it doesn't, generate a helpful, in-character response
+3. If it does, determine whether the price is PER-UNIT or a TOTAL for all units
+4. Determine if the buyer wants to change the quantity
+5. If it doesn't contain a price, generate a helpful, in-character response
+
+CRITICAL — TOTAL vs PER-UNIT PRICE:
+When quantity is more than 1 and the buyer states a price:
+- Look at the CONVERSATION HISTORY to see how the buyer has been quoting prices.
+- If the buyer previously said prices as totals (e.g., "1400 for 2 units"), then a
+  subsequent bare number like "1200" is almost certainly also a total.
+- Only treat it as per-unit if the buyer explicitly says "per unit" or "each".
+- Heuristic: if the number is much larger than the base price but close to
+  (base_price × quantity), it is most likely a total.
 
 You must respond ONLY with valid JSON. No explanations, no markdown, no code blocks — pure JSON only.
 
@@ -424,8 +460,44 @@ def build_chat_understanding_prompt(
     max_rounds: int,
     mode: str,
     negotiation_history: str,
+    current_quantity: int = 1,
+    conversation_messages: str = "",
 ) -> str:
     """Build prompt to understand buyer's free-text message and optionally extract a price."""
+
+    # --- total-vs-unit disambiguation block (only when qty > 1) ---
+    total_context = ""
+    if current_quantity > 1:
+        try:
+            total_price_at_offer = float(our_last_offer) * current_quantity
+            total_price_at_base = float(base_price) * current_quantity
+        except (ValueError, TypeError):
+            total_price_at_offer = 0.0
+            total_price_at_base = 0.0
+        total_context = f"""
+IMPORTANT — PRICE DISAMBIGUATION (quantity = {current_quantity}):
+Our current per-unit offer is ${our_last_offer} → total for {current_quantity} units = ${total_price_at_offer:.2f}.
+Base per-unit price is ${base_price} → total for {current_quantity} units = ${total_price_at_base:.2f}.
+
+When the buyer states a number:
+  • If they say "per unit" or "each" → set extracted_unit_price.
+  • If they say "total", "for {current_quantity} units", "for all" → set extracted_total_price.
+  • If it is a BARE number (e.g. "1200"):
+    – Check the conversation history below.  If the buyer has been using totals,
+      this number is almost certainly a total → set extracted_total_price.
+    – Otherwise, if the number ≈ base_price (${base_price}) or below, treat as per-unit.
+    – If the number ≈ base_price × {current_quantity} (${total_price_at_base:.2f}) or between
+      base_price and base_price × {current_quantity}, treat as total.
+"""
+
+    # --- conversation history block ---
+    history_section = ""
+    if conversation_messages:
+        history_section = f"""
+RECENT CONVERSATION (use this to understand the buyer's pricing convention):
+{conversation_messages}
+"""
+
     return f"""Analyze this buyer's message in an ongoing negotiation and determine their intent.
 
 NEGOTIATION CONTEXT:
@@ -434,8 +506,9 @@ NEGOTIATION CONTEXT:
 - Our current offer: ${our_last_offer} per unit
 - Current round: {current_round} of {max_rounds}
 - Mode: {mode}
-- History so far: {negotiation_history}
-
+- Current quantity: {current_quantity} unit(s)
+- Price history: {negotiation_history}
+{total_context}{history_section}
 BUYER'S MESSAGE:
 "{buyer_message}"
 
@@ -445,12 +518,18 @@ TASK:
    - Implied: "can you do half price?", "10% off?", "what about a 20% discount?"
    - NOT a price: "hello", "tell me more", "why so expensive?", "what features?", "can you do better?"
    
-2. If YES (contains price): extract the exact numeric price
-   - For percentages/discounts, calculate the actual dollar amount based on our current offer of ${our_last_offer}
-   - "half price" = ${our_last_offer} / 2
-   - "10% off" = ${our_last_offer} * 0.90
-   
-3. If NO (just conversation): generate a reply that's in-character as the seller's representative
+2. If YES (contains price): extract the price AND decide if it is per-unit or total.
+   - For percentages/discounts, calculate the actual dollar amount based on our current offer of ${our_last_offer} (per unit).
+   - "half price" = ${our_last_offer} / 2 → per-unit price → set extracted_unit_price
+   - "10% off"  = ${our_last_offer} * 0.90 → per-unit price → set extracted_unit_price
+   - Set EXACTLY ONE of extracted_unit_price or extracted_total_price (never both).
+
+3. Does the buyer want to change quantity?
+   - "I want 5 units", "make it 20", "just 1 please", "I'll take 50"
+   - "what if I buy 100?", "price for 3?"
+   - Return the new quantity as an integer, or null if no change
+
+4. If NO price and NO quantity change (just conversation): generate a reply that's in-character as the seller's representative
    - Answer questions about the product positively
    - If they ask "why so expensive?" — justify the value
    - If they say "can you do better?" — ask them to make a specific offer
@@ -461,6 +540,9 @@ TASK:
 Respond with ONLY this JSON:
 {{
   "has_price": <true or false>,
-  "extracted_price": <float or null — the dollar amount if has_price is true>,
-  "reply": "<string — your conversational reply if has_price is false, or null if has_price is true>"
+  "extracted_unit_price": <float or null — buyer's per-unit price, if they specified per-unit>,
+  "extracted_total_price": <float or null — buyer's total price for all units, if they specified a total>,
+  "has_quantity_change": <true or false>,
+  "extracted_quantity": <int or null — the new quantity if has_quantity_change is true>,
+  "reply": "<string — your conversational reply if has_price is false and has_quantity_change is false, or null>"
 }}"""

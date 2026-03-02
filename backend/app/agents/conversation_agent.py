@@ -359,10 +359,15 @@ class ConversationAgent:
     ) -> str:
         """Generate acceptance message."""
         template = self.ACCEPT_TEMPLATES[0]
-        return template.format(
+        msg = template.format(
             price=self._format_price(decision.accepted_price),
             quantity=context.quantity,
         )
+        # Append total when multi-unit
+        if context.quantity > 1 and decision.accepted_price is not None:
+            total = decision.accepted_price * context.quantity
+            msg = msg.rstrip('.') + f" (${self._format_price(total)} total)."
+        return msg
     
     def _generate_reject(
         self,
@@ -382,12 +387,17 @@ class ConversationAgent:
         templates = self.COUNTER_TEMPLATES[context.mode][phase]
         template = templates[0]
         
-        return template.format(
+        msg = template.format(
             buyer_offer=self._format_price(context.buyer_offered),
             our_offer=self._format_price(decision.counter_offer_price),
             quantity=context.quantity,
             product=context.product_name,
         )
+        # Append total when multi-unit
+        if context.quantity > 1 and decision.counter_offer_price is not None:
+            total = decision.counter_offer_price * context.quantity
+            msg += f" That's ${self._format_price(total)} total for {context.quantity} units."
+        return msg
     
     def _generate_constraint_violation(
         self,

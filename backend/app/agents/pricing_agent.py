@@ -1,24 +1,27 @@
 """
-Pricing Strategy Agent — AI-Powered
+Pricing Strategy Agent — PRANE-X Integration
 
-Purpose: Make pricing decisions using LLM intelligence + hard safety guardrails.
-
-CORE RULES (enforced as guardrails, AI cannot override):
-1. Accept only if buyer's offer is within ±$3 of our current counter (rounds 1-4)
-   After round 5, threshold widens progressively (+$5/round) — never below cost_price
-2. Counter price must NEVER go UP from our previous counter
-3. Counter price must NEVER go below min_acceptable_price
-4. If buyer offers far below our counter → COUNTER or REJECT (never accept)
-5. Financial metrics (margin, profit) are always computed deterministically
+Purpose: Orchestrate LLM extraction, the deterministic PRANE-X negotiation
+engine, and LLM verbalisation.  ALL economic logic lives in
+negotiation_engine.py — this module performs NO arithmetic on prices.
 
 Architecture:
-    LLM decides → Guardrails enforce → Metrics computed → Response built
-    If LLM fails → Fallback heuristic with same guardrails
+    1. LLM extracts structured intent from buyer message
+    2. process_round() (pure function) computes the pricing decision
+    3. LLM verbalises the EngineResult into natural language
+    4. Post-generation price validator sanitises the LLM output
+
+HARD RULE:  The LLM must NEVER see cost_price, dynamic_floor,
+            bbi (raw), p_high_wtp, remaining_concession_budget,
+            or any field that reveals internal engine state.
 """
+from __future__ import annotations
+
 import json
+import re
 import structlog
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 
 from ..models import (
@@ -31,11 +34,26 @@ from ..models import (
     OfferDecision,
 )
 from .context_agent import StrategicPosture
+from .negotiation_engine import (
+    NegotiationState,
+    EngineResult,
+    NegotiationPhase,
+    BuyerArchetype,
+    ReasoningTag,
+    process_round,
+    derive_archetype,
+    compute_bulk_target_price,
+    TUNING,
+)
 from ..infrastructure.llm.openai_client import get_llm_client, OpenRouterClient
 from ..infrastructure.llm import prompt_templates as llm_prompts
 
 logger = structlog.get_logger(__name__)
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Legacy PricingState kept for backward compatibility with engine.py / session.py
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class PricingState:
@@ -48,24 +66,113 @@ class PricingState:
     offers_history: List[Decimal]   # All our offers (chronological)
     buyer_history: List[Decimal]    # All buyer offers (chronological)
 
+    # ── PRANE-X extension ──────────────────────────────────────
+    engine_state: Optional[NegotiationState] = None
+    chat_history: list = field(default_factory=list)   # [{"role":"Buyer"/"Seller", "text":...}]
+
     def __post_init__(self):
         if not isinstance(self.concession_used, Decimal):
             self.concession_used = Decimal(str(self.concession_used))
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# LLM EXTRACTION PROMPT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EXTRACTION_SYSTEM_PROMPT = """You are a structured-data extraction module inside a negotiation engine.
+You receive the buyer's raw message and output ONLY a JSON object.
+You must NEVER calculate, suggest, or modify any prices.
+You must NEVER add commentary. Return ONLY valid JSON."""
+
+_EXTRACTION_USER_TEMPLATE = """Extract structured negotiation intent from this buyer message.
+
+BUYER MESSAGE:
+\"\"\"{buyer_message}\"\"\"
+
+CONTEXT:
+- Product base price: ${base_price}
+- Seller's current counter: ${current_counter}
+- Quantity previously agreed: {quantity}
+
+Return ONLY this JSON (no markdown, no commentary):
+{{
+  "quantity":             <int or null — if buyer mentions a new quantity>,
+  "unit_price_offered":   <float or null — buyer's per-unit price offer>,
+  "total_price_offered":  <float or null — buyer's total-price offer>,
+  "intent":               "<offer|inquiry|accept|reject|walkaway>",
+  "tone":                 "<aggressive|neutral|cooperative|desperate>",
+  "anchoring_detected":   <true or false>,
+  "urgency_signal":       <true or false>,
+  "bundle_request":       <true or false>,
+  "social_proof_claim":   <true or false>
+}}"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LLM VERBALIZER PROMPT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_VERBALIZER_SYSTEM_PROMPT = """You are a professional negotiation representative.
+You communicate pricing decisions made by a deterministic pricing engine.
+
+CRITICAL RULES:
+1. Use ONLY the exact prices in the context below. NEVER invent numbers.
+2. Keep responses under 3 sentences. Be concise and professional.
+3. Do NOT reveal internal strategy, cost prices, margins, or concession budgets.
+4. Do NOT say you are an AI, bot, or language model.
+5. Do NOT promise future discounts, upgrades, or extras.
+6. Vary your language based on the reasoning_tag and phase."""
+
+_VERBALIZER_USER_TEMPLATE = """Generate a short negotiation response.
+
+DECISION CONTEXT:
+- Decision: {decision}
+- Our counter price: ${counter_unit_price} per unit (total: ${counter_total_price} for {quantity} unit(s))
+- Phase: {phase}
+- Reasoning: {reasoning_tag}
+- Round: {round_number} of {max_rounds} ({rounds_remaining} remaining)
+- Buyer behavior: {bbi_category}
+- Quantity: {quantity} unit(s)
+
+RULES:
+- If decision is "accept": confirm the deal at ${counter_unit_price} per unit.
+- If decision is "counter": present ${counter_unit_price} as our offer.
+- If decision is "final_offer": make clear this is our final offer at ${counter_unit_price}.
+- If decision is "reject": end the negotiation respectfully.
+- You MUST mention the price ${counter_unit_price} per unit in your response.
+- When quantity is more than 1, ALWAYS also state the total of ${counter_total_price} for {quantity} units.
+- Do NOT mention any price other than ${counter_unit_price} (unit) or ${counter_total_price} (total).
+
+Generate the response:"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE FALLBACKS (when LLM is unavailable)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TEMPLATE_FALLBACKS = {
+    "accept": "We have a deal at ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). Thank you!",
+    "counter": "I appreciate your offer. My best price is ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total).",
+    "final_offer": "This is my final offer: ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). I can't go lower.",
+    "reject": "Unfortunately we couldn't reach an agreement. Thank you for your time.",
+}
+
+
 class PricingStrategyAgent:
     """
-    AI-powered pricing engine with hard safety guardrails.
+    PRANE-X integration layer.
 
-    The LLM handles strategy (how much to concede, when to push back).
-    Guardrails handle safety (never accept below floor, never counter up).
+    Internally delegates all pricing logic to the deterministic
+    negotiation engine.  The LLM is used strictly for:
+    (a) extracting structured data from buyer messages, and
+    (b) verbalising the EngineResult into natural language.
     """
 
     def __init__(self, llm_client: Optional[OpenRouterClient] = None):
         self.llm = llm_client or get_llm_client()
 
     # ══════════════════════════════════════════════════════════════════════
-    # PUBLIC API
+    # PUBLIC API (unchanged signatures — engine.py keeps working)
     # ══════════════════════════════════════════════════════════════════════
 
     def compute_initial_offer(
@@ -73,21 +180,22 @@ class PricingStrategyAgent:
         product: ProductData,
         inventory: InventoryContext,
         posture: StrategicPosture,
+        strategy: Optional["StrategicControls"] = None,
     ) -> Decimal:
-        """Compute the seller's opening offer."""
-
-        # Try AI
-        if self.llm.enabled:
-            try:
-                ai_offer = self._ai_initial_offer(product, inventory, posture)
-                if ai_offer is not None:
-                    logger.info("ai_initial_offer", price=str(ai_offer))
-                    return ai_offer
-            except Exception as e:
-                logger.error("ai_initial_offer_error", error=str(e))
-
-        # Fallback
-        return self._fallback_initial_offer(product, inventory, posture)
+        """Seller opens at base price, quantity-adjusted via bulk target."""
+        qty = inventory.requested_quantity
+        if qty > 1 and strategy is not None:
+            mode = strategy.mode.value
+            bulk_target = compute_bulk_target_price(
+                float(product.base_price), qty, mode,
+            )
+            initial = Decimal(str(bulk_target))
+        elif qty > 1:
+            # Fallback: use posture-based discount if strategy not available
+            initial = product.base_price * posture.quantity_discount_factor
+        else:
+            initial = product.base_price
+        return self._round_price(max(initial, product.min_acceptable_price))
 
     def evaluate_offer(
         self,
@@ -98,318 +206,180 @@ class PricingStrategyAgent:
         posture: StrategicPosture,
         state: PricingState,
     ) -> PricingDecision:
-        """Evaluate buyer's offer → accept / counter / reject."""
+        """
+        Evaluate buyer's offer via the PRANE-X engine.
 
+        1. Ensure NegotiationState exists (lazy-init on first call)
+        2. Extract structured intent from buyer message via LLM
+        3. Feed extraction to process_round()
+        4. Map EngineResult → PricingDecision for the legacy pipeline
+        """
         offered = buyer_offer.offered_price
         quantity = buyer_offer.offered_quantity or inventory.requested_quantity
 
-        # ─── DYNAMIC ACCEPTANCE: proximity to our current counter ────────
-        # Rounds 1-4: accept only if buyer is within $3 of our counter
-        # Rounds 5+:  threshold widens progressively (buyer wore us down)
-        round_num = state.current_round
-        if round_num <= 4:
-            acceptance_threshold = Decimal("3")
-        else:
-            # Widens by $5 per round after round 4
-            acceptance_threshold = Decimal("3") + Decimal(str(round_num - 4)) * Decimal("5")
-
-        # Accept if buyer's offer is close enough to our counter AND above cost
-        if offered >= (state.current_offer - acceptance_threshold) and offered >= product.cost_price:
-            logger.info(
-                "proximity_accept",
-                offered=str(offered),
-                our_counter=str(state.current_offer),
-                threshold=str(acceptance_threshold),
-                round=round_num,
-            )
-            return self._build_decision(
-                decision=OfferDecision.ACCEPT,
-                counter_price=None,
-                offered=offered,
-                product=product,
-                posture=posture,
-                state=state,
+        # ── 1. Lazy-initialise PRANE-X state ──────────────────────
+        if state.engine_state is None:
+            buyer_history = []  # No cross-session history available in this path
+            archetype = derive_archetype(buyer_history)
+            state.engine_state = NegotiationState(
+                base_price=float(product.base_price),
+                cost_price=float(product.cost_price),
+                min_floor=float(product.min_acceptable_price),
+                mode=strategy.mode.value,
+                max_rounds=strategy.max_rounds,
                 quantity=quantity,
-                violations=[],
+                total_sessions=0,
+                accepted_deals=0,
+                historical_avg_margin=TUNING["target_margin_default"],
+                historical_revenue=0.0,
+                available_inventory=inventory.available_quantity,
+                reference_inventory=inventory.available_quantity,
+                buyer_archetype=archetype,
             )
 
-        # ─── Below min_acceptable: check how bad it is ───────────────────
-        violations = self._check_constraints(offered, product, posture)
+        # ── 2. Build extraction dict ──────────────────────────────
+        extraction = self._extract_intent(buyer_offer, state)
 
-        # Try AI to decide counter strategy
-        if self.llm.enabled:
-            try:
-                ai_decision = self._ai_evaluate_offer(
-                    buyer_offer, product, inventory, strategy,
-                    posture, state, violations,
-                )
-                if ai_decision is not None:
-                    logger.info("ai_pricing_decision", decision=ai_decision.decision.value)
-                    return ai_decision
-            except Exception as e:
-                logger.error("ai_pricing_error", error=str(e))
+        # ── 3. Run engine ─────────────────────────────────────────
+        result: EngineResult = process_round(state.engine_state, extraction)
 
-        # Fallback heuristic
-        return self._fallback_evaluate(
-            offered, quantity, product, posture, state, strategy, violations
+        # ── 4. Map to PricingDecision ─────────────────────────────
+        return self._engine_result_to_pricing_decision(
+            result, offered, product, posture, state, quantity,
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # AI METHODS
+    # LLM EXTRACTION
     # ══════════════════════════════════════════════════════════════════════
 
-    def _ai_initial_offer(
-        self,
-        product: ProductData,
-        inventory: InventoryContext,
-        posture: StrategicPosture,
-    ) -> Optional[Decimal]:
-        """LLM picks the opening price."""
-
-        prompt = llm_prompts.build_initial_offer_pricing_prompt(
-            product_name=product.product_name,
-            base_price=str(product.base_price),
-            cost_price=str(product.cost_price),
-            min_acceptable_price=str(product.min_acceptable_price),
-            target_price=str(posture.target_price),
-            aggressiveness=str(posture.aggressiveness),
-            mode="MAX_PROFIT" if posture.aggressiveness >= Decimal("0.5") else "MIN_LOSS",
-            requested_quantity=inventory.requested_quantity,
-            quantity_discount_factor=str(posture.quantity_discount_factor),
-        )
-
-        result = self.llm.generate_sync(
-            system_prompt=llm_prompts.PRICING_STRATEGY_SYSTEM_PROMPT,
-            user_prompt=prompt,
-            temperature=0.3,
-        )
-        if not result.success:
-            return None
-
-        try:
-            data = json.loads(self._clean_json(result.content))
-            offer = Decimal(str(data["initial_offer"]))
-
-            # Guardrail: always start at base price
-            offer = product.base_price
-
-            # Quantity discount (only for multi-unit orders)
-            if inventory.requested_quantity > 1:
-                offer = offer * posture.quantity_discount_factor
-                offer = max(product.min_acceptable_price, offer)
-
-            return self._round_price(offer)
-        except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError) as e:
-            logger.warning("ai_initial_offer_parse_error", error=str(e))
-            return None
-
-    def _ai_evaluate_offer(
+    def _extract_intent(
         self,
         buyer_offer: BuyerOffer,
-        product: ProductData,
-        inventory: InventoryContext,
-        strategy: StrategicControls,
-        posture: StrategicPosture,
         state: PricingState,
-        violations: List[str],
-    ) -> Optional[PricingDecision]:
-        """LLM decides counter/reject for offers below min_acceptable."""
+    ) -> dict:
+        """
+        Build the extraction dict consumed by process_round().
 
-        offered = buyer_offer.offered_price
-        quantity = buyer_offer.offered_quantity or inventory.requested_quantity
+        When the offer arrives through the structured BuyerOffer path
+        (already has a numeric price), we bypass full LLM extraction
+        and construct the dict directly.  LLM extraction is attempted
+        only when a free-text message is present.
+        """
+        eng = state.engine_state
+        base_extraction = {
+            "quantity": buyer_offer.offered_quantity,
+            "unit_price_offered": float(buyer_offer.offered_price),
+            "total_price_offered": None,
+            "intent": "offer",
+            "tone": "neutral",
+            "anchoring_detected": False,
+            "urgency_signal": False,
+            "bundle_request": False,
+            "social_proof_claim": False,
+        }
 
-        prompt = llm_prompts.build_evaluate_offer_prompt(
-            product_name=product.product_name,
-            base_price=str(product.base_price),
-            cost_price=str(product.cost_price),
-            min_acceptable_price=str(product.min_acceptable_price),
-            buyer_offered=str(offered),
-            buyer_message=buyer_offer.message or "",
-            current_round=state.current_round,
-            max_rounds=strategy.max_rounds,
-            our_last_offer=str(state.current_offer),
-            buyer_last_offer=str(state.buyer_last_offer or "N/A"),
-            target_price=str(posture.target_price),
-            reservation_price=str(posture.reservation_price),
-            walk_away_price=str(posture.walk_away_price),
-            aggressiveness=str(posture.aggressiveness),
-            flexibility=str(posture.flexibility),
-            risk_tolerance=str(posture.risk_tolerance),
-            mode=strategy.mode.value,
-            concession_used=str(state.concession_used),
-            total_concession_budget=str(posture.total_concession_budget),
-            offers_history=", ".join(str(o) for o in state.offers_history),
-            buyer_history=", ".join(str(o) for o in state.buyer_history),
-            requested_quantity=quantity,
-        )
+        if not buyer_offer.message or not self.llm.enabled:
+            return base_extraction
 
-        result = self.llm.generate_sync(
-            system_prompt=llm_prompts.PRICING_STRATEGY_SYSTEM_PROMPT,
-            user_prompt=prompt,
-            temperature=0.3,
-        )
-        if not result.success:
-            return None
-
+        # Attempt LLM extraction for richer signal
         try:
-            data = json.loads(self._clean_json(result.content))
-            decision_str = data.get("decision", "counter").lower().strip()
-            counter_price_raw = data.get("counter_price")
-
-            if decision_str == "reject":
-                decision = OfferDecision.REJECT
-            else:
-                decision = OfferDecision.COUNTER   # default to counter
-
-            # NOTE: Acceptance is handled by proximity check in evaluate_offer().
-            # If AI says "accept" here, override to COUNTER — only the
-            # proximity threshold decides acceptance.
-            if decision_str == "accept":
-                decision = OfferDecision.COUNTER
-                counter_price_raw = counter_price_raw or str(state.current_offer)
-
-            # ── Guardrails for COUNTER ────────────────────────────────
-            counter_price = None
-            if decision == OfferDecision.COUNTER:
-                if counter_price_raw is not None:
-                    counter_price = Decimal(str(counter_price_raw))
-                else:
-                    counter_price = state.current_offer
-
-                # RULE 2: Counter must NEVER go UP
-                counter_price = min(counter_price, state.current_offer)
-
-                # RULE 3: Counter must NEVER go below min_acceptable
-                counter_price = max(counter_price, product.min_acceptable_price)
-
-                counter_price = self._round_price(counter_price)
-
-            # Last round: can't counter, must reject
-            if state.current_round >= strategy.max_rounds and decision == OfferDecision.COUNTER:
-                decision = OfferDecision.REJECT
-                counter_price = None
-
-            return self._build_decision(
-                decision=decision,
-                counter_price=counter_price,
-                offered=offered,
-                product=product,
-                posture=posture,
-                state=state,
-                quantity=quantity,
-                violations=violations,
+            prompt = _EXTRACTION_USER_TEMPLATE.format(
+                buyer_message=buyer_offer.message,
+                base_price=eng.base_price if eng else "N/A",
+                current_counter=(
+                    eng.counter_history[-1]
+                    if eng and eng.counter_history
+                    else eng.base_price if eng else "N/A"
+                ),
+                quantity=eng.quantity if eng else 1,
             )
-        except (json.JSONDecodeError, KeyError, InvalidOperation, ValueError) as e:
-            logger.warning("ai_evaluate_parse_error", error=str(e),
-                           content=result.content[:200])
-            return None
+            llm_result = self.llm.generate_sync(
+                system_prompt=_EXTRACTION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                temperature=0.1,
+            )
+            if llm_result.success:
+                data = json.loads(self._clean_json(llm_result.content))
+                # Merge LLM signals into base (keep the hard price from BuyerOffer)
+                base_extraction["tone"] = data.get("tone", "neutral")
+                base_extraction["anchoring_detected"] = bool(data.get("anchoring_detected"))
+                base_extraction["urgency_signal"] = bool(data.get("urgency_signal"))
+                base_extraction["bundle_request"] = bool(data.get("bundle_request"))
+                base_extraction["social_proof_claim"] = bool(data.get("social_proof_claim"))
+                if data.get("intent") in ("accept", "reject", "walkaway"):
+                    base_extraction["intent"] = data["intent"]
+                # Merge quantity from LLM if not already set
+                llm_qty = data.get("quantity")
+                if llm_qty and base_extraction["quantity"] is None:
+                    try:
+                        llm_qty = int(llm_qty)
+                        if llm_qty > 0:
+                            base_extraction["quantity"] = llm_qty
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as e:
+            logger.warning("llm_extraction_failed", error=str(e))
+
+        return base_extraction
 
     # ══════════════════════════════════════════════════════════════════════
-    # FALLBACK HEURISTICS (when LLM is unavailable)
+    # RESULT MAPPING
     # ══════════════════════════════════════════════════════════════════════
 
-    def _fallback_initial_offer(
+    def _engine_result_to_pricing_decision(
         self,
-        product: ProductData,
-        inventory: InventoryContext,
-        posture: StrategicPosture,
-    ) -> Decimal:
-        """Always start at the base (listed) price."""
-        initial = product.base_price
-
-        # Only apply quantity discount for multi-unit orders
-        if inventory.requested_quantity > 1:
-            initial = initial * posture.quantity_discount_factor
-
-        return self._round_price(max(initial, product.min_acceptable_price))
-
-    def _fallback_evaluate(
-        self,
+        result: EngineResult,
         offered: Decimal,
-        quantity: int,
         product: ProductData,
         posture: StrategicPosture,
         state: PricingState,
-        strategy: StrategicControls,
-        violations: List[str],
+        quantity: int,
     ) -> PricingDecision:
-        """Heuristic for offers below min_acceptable (LLM unavailable)."""
+        """Map EngineResult → legacy PricingDecision."""
 
-        # Last round: reject (buyer hasn't met our minimum)
-        if state.current_round >= strategy.max_rounds:
-            return self._build_decision(
-                OfferDecision.REJECT, None, offered,
-                product, posture, state, quantity, violations,
-            )
-
-        # Compute a concession from our last offer
-        remaining_budget = posture.total_concession_budget - state.concession_used
-        if remaining_budget <= 0:
-            counter = state.current_offer
+        # Translate decision
+        if result.decision == "accept":
+            decision = OfferDecision.ACCEPT
+        elif result.decision == "reject":
+            decision = OfferDecision.REJECT
         else:
-            concession = posture.per_round_concession
-            # If buyer didn't move up, concede less
-            if state.buyer_last_offer is not None:
-                buyer_movement = offered - state.buyer_last_offer
-                if buyer_movement <= 0:
-                    concession *= Decimal("0.3")
-                elif buyer_movement < concession:
-                    concession = buyer_movement * Decimal("0.8")
-            counter = state.current_offer - concession
+            decision = OfferDecision.COUNTER
 
-        # RULE 2: Counter must NEVER go UP
-        counter = min(counter, state.current_offer)
-
-        # RULE 3: Counter must NEVER go below min_acceptable
-        counter = max(counter, product.min_acceptable_price)
-
-        return self._build_decision(
-            OfferDecision.COUNTER, self._round_price(counter),
-            offered, product, posture, state, quantity, violations,
+        counter_price = (
+            Decimal(str(result.counter_unit_price))
+            if decision == OfferDecision.COUNTER
+            else None
         )
 
-    # ══════════════════════════════════════════════════════════════════════
-    # DECISION BUILDER
-    # ══════════════════════════════════════════════════════════════════════
-
-    def _build_decision(
-        self,
-        decision: OfferDecision,
-        counter_price: Optional[Decimal],
-        offered: Decimal,
-        product: ProductData,
-        posture: StrategicPosture,
-        state: PricingState,
-        quantity: int,
-        violations: List[str],
-    ) -> PricingDecision:
-        """Build PricingDecision with deterministic financial metrics."""
-
+        # Deterministic metrics
         margin_pct, profit_unit, total_profit = self._compute_metrics(
-            offered, product.cost_price, quantity
+            offered if decision == OfferDecision.ACCEPT else Decimal(str(result.counter_unit_price)),
+            product.cost_price,
+            quantity,
         )
 
         concession_made = Decimal("0")
-        if decision == OfferDecision.COUNTER and counter_price and counter_price < state.current_offer:
-            concession_made = state.current_offer - counter_price
+        if decision == OfferDecision.COUNTER and counter_price is not None:
+            if counter_price < state.current_offer:
+                concession_made = state.current_offer - counter_price
 
-        remaining_budget = max(
-            Decimal("0"),
-            posture.total_concession_budget - state.concession_used - concession_made,
+        remaining_budget = Decimal(str(result.remaining_concession_budget))
+        total_budget = posture.total_concession_budget if posture.total_concession_budget > 0 else Decimal("1")
+        budget_used_pct = min(
+            Decimal("100"),
+            ((total_budget - remaining_budget) / total_budget * 100)
+            if total_budget > 0 else Decimal("0"),
         )
 
-        budget_used_pct = Decimal("0")
-        if posture.total_concession_budget > 0:
-            budget_used_pct = (
-                (state.concession_used + concession_made)
-                / posture.total_concession_budget
-                * 100
-            )
-        budget_used_pct = min(Decimal("100"), budget_used_pct)
+        violations = []
+        if offered < product.min_acceptable_price:
+            violations.append(f"below_min_acceptable: {offered} < {product.min_acceptable_price}")
+        if offered < product.cost_price:
+            violations.append(f"below_cost: {offered} < {product.cost_price}")
 
         return PricingDecision(
             decision=decision,
-            counter_offer_price=counter_price if decision == OfferDecision.COUNTER else None,
+            counter_offer_price=counter_price,
             accepted_price=offered if decision == OfferDecision.ACCEPT else None,
             margin_percentage=margin_pct,
             profit_per_unit=profit_unit,
@@ -417,33 +387,101 @@ class PricingStrategyAgent:
             within_constraints=len(violations) == 0,
             constraint_violations=violations,
             concession_made=concession_made,
-            remaining_concession_budget=remaining_budget,
+            remaining_concession_budget=self._round_price(remaining_budget),
             concession_percentage_used=self._round_price(budget_used_pct),
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # CONSTRAINT CHECK
+    # PRICE VALIDATOR (mandatory on every verbalizer output)
     # ══════════════════════════════════════════════════════════════════════
 
-    def _check_constraints(
-        self,
-        offered: Decimal,
-        product: ProductData,
-        posture: StrategicPosture,
-    ) -> List[str]:
-        """Check hard constraints. Returns list of violation descriptions."""
-        violations = []
-        if offered < product.min_acceptable_price:
-            violations.append(
-                f"below_min_acceptable: {offered} < {product.min_acceptable_price}"
-            )
-        if offered < product.cost_price:
-            violations.append(f"below_cost: {offered} < {product.cost_price}")
-        if offered < posture.walk_away_price:
-            violations.append(
-                f"below_walk_away: {offered} < {posture.walk_away_price}"
-            )
-        return violations
+    @staticmethod
+    def validate_and_sanitize_prices(
+        text: str,
+        counter_unit_price: float,
+        counter_total_price: float,
+    ) -> str:
+        """
+        Scan LLM output for prices and replace any that diverge from
+        the engine's counter_unit_price / counter_total_price.
+
+        Skips small numbers (< 20) that are likely round numbers,
+        quantities, or other non-price references.
+        """
+        pattern = re.compile(r'\$[\d,]+\.?\d*')
+        def _replacer(match: re.Match) -> str:
+            raw = match.group(0).replace(",", "").lstrip("$")
+            try:
+                value = float(raw)
+            except ValueError:
+                return match.group(0)
+            # Skip numbers too small to be prices (round numbers, quantities)
+            if value < 20.0:
+                return match.group(0)
+            if abs(value - counter_unit_price) <= 0.01:
+                return match.group(0)
+            if abs(value - counter_total_price) <= 0.01:
+                return match.group(0)
+            # Divergent price — replace with unit price
+            prefix = "$" if match.group(0).startswith("$") else ""
+            return f"{prefix}{counter_unit_price:.2f}"
+        return pattern.sub(_replacer, text)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # LLM VERBALIZER
+    # ══════════════════════════════════════════════════════════════════════
+
+    def verbalize(self, result: EngineResult, state: NegotiationState) -> str:
+        """
+        Convert an EngineResult into a natural-language response.
+
+        The LLM must NEVER see internal state. Only the verb_context
+        (a curated subset) is passed.
+        """
+        verb_context = {
+            "counter_unit_price":   result.counter_unit_price,
+            "counter_total_price":  result.counter_total_price,
+            "decision":             result.decision,
+            "reasoning_tag":        result.reasoning_tag.value,
+            "phase":                result.phase.value,
+            "round_number":         result.round_number,
+            "max_rounds":           state.max_rounds,
+            "rounds_remaining":     result.rounds_remaining,
+            "bbi_category":         result.bbi_category,
+            "quantity":             state.quantity,
+        }
+
+        raw_response: Optional[str] = None
+
+        if self.llm.enabled:
+            try:
+                prompt = _VERBALIZER_USER_TEMPLATE.format(**verb_context)
+                llm_result = self.llm.generate_sync(
+                    system_prompt=_VERBALIZER_SYSTEM_PROMPT,
+                    user_prompt=prompt,
+                    temperature=0.7,
+                )
+                if llm_result.success and len(llm_result.content.strip()) > 10:
+                    raw_response = llm_result.content.strip()
+            except Exception as e:
+                logger.warning("verbalizer_llm_failed", error=str(e))
+
+        if raw_response is None:
+            raw_response = self._template_fallback(verb_context)
+
+        # MANDATORY price validator
+        return self.validate_and_sanitize_prices(
+            raw_response,
+            result.counter_unit_price,
+            result.counter_total_price,
+        )
+
+    @staticmethod
+    def _template_fallback(ctx: dict) -> str:
+        tpl = _TEMPLATE_FALLBACKS.get(ctx["decision"], _TEMPLATE_FALLBACKS["counter"])
+        return tpl.replace("${counter_unit_price}", f'{ctx["counter_unit_price"]:.2f}').replace(
+            "${counter_total_price}", f'{ctx["counter_total_price"]:.2f}'
+        ).replace("{quantity}", str(ctx["quantity"]))
 
     # ══════════════════════════════════════════════════════════════════════
     # UTILITIES

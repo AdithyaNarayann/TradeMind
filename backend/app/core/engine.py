@@ -101,6 +101,7 @@ class NegotiationEngine:
             product=request.product,
             inventory=request.inventory,
             posture=posture,
+            strategy=request.strategy,
         )
 
         # Step 3: Create session
@@ -253,6 +254,7 @@ class NegotiationEngine:
 
         Uses LLM to understand the message:
         - If it contains a price offer -> route to process_turn()
+        - If buyer changes quantity -> update session & engine state, recalc prices
         - If it's just conversation -> reply in character
         """
         # Step 1: Get session
@@ -282,32 +284,97 @@ class NegotiationEngine:
             try:
                 extracted = self._understand_chat(chat_message.message, session, current_offer, history_str)
                 if extracted is not None:
-                    has_price, price, reply = extracted
+                    has_price, unit_price, total_price, reply, has_qty_change, new_qty = extracted
 
-                    if has_price and price is not None and price > 0:
-                        # Route to pricing engine
-                        buyer_offer = BuyerOffer(
-                            offered_price=Decimal(str(price)),
-                            message=chat_message.message,
+                    # Handle quantity change (with or without a price offer)
+                    if has_qty_change and new_qty is not None and new_qty > 0:
+                        self._apply_quantity_change(session, new_qty)
+
+                    if has_price and (
+                        (unit_price is not None and unit_price > 0)
+                        or (total_price is not None and total_price > 0)
+                    ):
+                        # Resolve effective per-unit price
+                        qty = session.inventory.requested_quantity
+                        if unit_price is not None and unit_price > 0:
+                            effective_price = unit_price
+                        elif total_price is not None and total_price > 0 and qty > 0:
+                            effective_price = round(total_price / qty, 2)
+                        else:
+                            effective_price = None
+
+                        if effective_price is not None and effective_price > 0:
+                            # ── Sanity: cap at base price ──────────────
+                            #   No rational buyer offers above the asking price.
+                            #   If extracted price > base, it's almost certainly
+                            #   a mistype or LLM parsing error. Clamp to base.
+                            base = float(session.product.base_price)
+                            if effective_price > base:
+                                effective_price = base
+
+                            # Store buyer message in history
+                            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+
+                            # Route to pricing engine
+                            buyer_offer = BuyerOffer(
+                                offered_price=Decimal(str(effective_price)),
+                                message=chat_message.message,
+                                offered_quantity=new_qty if has_qty_change and new_qty else None,
+                            )
+                            turn_response = self.process_turn(session_id, buyer_offer)
+
+                            # Store seller response in history
+                            state.chat_history.append({"role": "Seller", "text": turn_response.message})
+
+                            return ChatResponse(
+                                session_id=session_id,
+                                message=turn_response.message,
+                                has_price_offer=True,
+                                extracted_price=Decimal(str(effective_price)),
+                                round_number=turn_response.round_number,
+                                status=turn_response.status,
+                                pricing=turn_response.pricing,
+                                can_continue=turn_response.can_continue,
+                                rounds_remaining=turn_response.rounds_remaining,
+                            )
+                    elif has_qty_change and new_qty is not None and new_qty > 0:
+                        # Pure quantity change — acknowledge and show updated pricing
+                        eng = state.engine_state
+                        if eng:
+                            # Use bulk_target_price (reflects volume discount)
+                            per_unit = eng.bulk_target_price
+                            if eng.counter_history:
+                                # If prior counters are below bulk target, honour them
+                                per_unit = min(eng.counter_history[-1], per_unit)
+                        else:
+                            # Engine not initialized yet — compute bulk target from product data
+                            from ..agents.negotiation_engine import compute_bulk_target_price
+                            mode = session.strategy.mode.value if session.strategy else "MAX_PROFIT"
+                            per_unit = compute_bulk_target_price(
+                                float(session.product.base_price), new_qty, mode,
+                            )
+                        qty_msg = (
+                            f"Updated to {new_qty} unit(s). "
+                            f"Our current offer is ${per_unit:.2f} per unit "
+                            f"(${per_unit * new_qty:.2f} total for {new_qty} units). "
+                            f"What price would you like to offer?"
                         )
-                        turn_response = self.process_turn(session_id, buyer_offer)
-
+                        # Store in chat history
+                        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                        state.chat_history.append({"role": "Seller", "text": qty_msg})
                         return ChatResponse(
                             session_id=session_id,
-                            message=turn_response.message,
-                            has_price_offer=True,
-                            extracted_price=Decimal(str(price)),
-                            round_number=turn_response.round_number,
-                            status=turn_response.status,
-                            pricing=turn_response.pricing,
-                            can_continue=turn_response.can_continue,
-                            rounds_remaining=turn_response.rounds_remaining,
+                            message=qty_msg,
+                            has_price_offer=False,
                         )
                     else:
                         # Pure conversation — return LLM reply
+                        reply_text = reply or "Could you please make a specific price offer?"
+                        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                        state.chat_history.append({"role": "Seller", "text": reply_text})
                         return ChatResponse(
                             session_id=session_id,
-                            message=reply or "Could you please make a specific price offer?",
+                            message=reply_text,
                             has_price_offer=False,
                         )
             except Exception as e:
@@ -343,6 +410,106 @@ class NegotiationEngine:
             has_price_offer=False,
         )
 
+    def _apply_quantity_change(
+        self,
+        session: NegotiationSession,
+        new_qty: int,
+    ) -> None:
+        """
+        Update session and engine state when buyer changes quantity mid-chat.
+
+        Recalculates dynamic floor, concession budget, and scarcity
+        based on the new quantity.
+        """
+        from ..agents.negotiation_engine import (
+            _compute_dynamic_floor,
+            _apply_psim,
+            compute_bulk_target_price,
+            TUNING,
+        )
+
+        # Update session inventory
+        session.inventory.requested_quantity = new_qty
+
+        # Update PRANE-X engine state
+        eng = session.pricing_state.engine_state
+        if eng is None:
+            return
+
+        old_qty = eng.quantity
+        eng.quantity = new_qty
+
+        # Recalculate floor (bulk discount changes with quantity)
+        eng.dynamic_floor = _compute_dynamic_floor(eng)
+        eng.dynamic_floor = _apply_psim(eng)
+
+        # Recalculate scarcity lock
+        T = TUNING
+        eng.scarcity_locked = (
+            (eng.available_inventory - new_qty) < T["scarcity_stock_threshold"]
+        )
+        if eng.scarcity_locked:
+            eng.dynamic_floor = round(
+                min(eng.dynamic_floor * (1 + T["scarcity_floor_lift"]), eng.base_price),
+                2,
+            )
+
+        # Recalculate bulk target price for new quantity
+        eng.bulk_target_price = max(
+            compute_bulk_target_price(eng.base_price, new_qty, eng.mode),
+            eng.dynamic_floor,
+        )
+
+        # ── Quantity change: reset counter progress ────────────
+        #   The deal fundamentally changed: old counters don't reflect
+        #   the correct bulk discount for the new quantity.
+        #   On decrease: old bulk-discounted counters are too low.
+        #   On increase: old counters lack the new volume discount.
+        #   Either way, clear and let concession restart from the
+        #   correct bulk_target_price.
+        if new_qty != old_qty:
+            # Only clear if counter_history has stale entries above bulk target
+            # (or on decrease, always clear to prevent exploit)
+            if new_qty < old_qty or (
+                eng.counter_history and eng.counter_history[-1] > eng.bulk_target_price + 0.01
+            ):
+                eng.counter_history.clear()
+                eng.final_offer_issued = False
+                eng.consecutive_stagnant = 0
+                eng.retrograde_count = 0
+                eng.good_faith_after_final = 0
+
+                # Reset round tracking — counter restarts from
+                # bulk_target, so stale round pressure would inflate
+                # the first concession step.  Cap max_rounds at
+                # remaining rounds (min 2) to prevent exploitation.
+                eng.offer_history.clear()
+                rounds_remaining = max(eng.max_rounds - eng.current_round, 2)
+                eng.max_rounds = rounds_remaining
+                eng.current_round = 0
+
+        # Recalculate concession budget for new quantity
+        new_total_budget = max((eng.base_price - eng.dynamic_floor) * new_qty, 0.0)
+
+        # Full budget reset on any quantity change
+        if new_qty != old_qty:
+            ratio_used = 0.0
+        elif eng.total_concession_budget > 0:
+            ratio_used = 1.0 - (eng.remaining_concession_budget / eng.total_concession_budget)
+        else:
+            ratio_used = 0.0
+
+        eng.total_concession_budget = new_total_budget
+        eng.remaining_concession_budget = max(new_total_budget * (1.0 - ratio_used), 0.0)
+
+        logger.info(
+            "quantity_changed",
+            old_qty=old_qty,
+            new_qty=new_qty,
+            new_floor=eng.dynamic_floor,
+            new_budget=eng.total_concession_budget,
+        )
+
     def _understand_chat(
         self,
         buyer_message: str,
@@ -350,22 +517,39 @@ class NegotiationEngine:
         current_offer: str,
         history_str: str,
     ) -> Optional[tuple]:
-        """Use LLM to understand buyer's free-text message."""
+        """
+        Use LLM to understand buyer's free-text message.
+
+        Returns: (has_price, unit_price, total_price, reply, has_qty_change, extracted_qty)
+        unit_price and total_price are mutually exclusive; at most one is set.
+        """
+        state = session.pricing_state
+
+        # Build recent conversation messages for context
+        msg_parts = []
+        for msg in (state.chat_history or [])[-8:]:  # last 8 messages (4 exchanges)
+            role = msg.get("role", "")
+            text = msg.get("text", "")
+            msg_parts.append(f"  {role}: {text}")
+        conversation_messages = "\n".join(msg_parts) if msg_parts else ""
+
         prompt = llm_prompts.build_chat_understanding_prompt(
             buyer_message=buyer_message,
             product_name=session.product.product_name,
             base_price=str(session.product.base_price),
             our_last_offer=current_offer,
-            current_round=session.pricing_state.current_round if session.pricing_state else 0,
+            current_round=state.current_round if state else 0,
             max_rounds=session.strategy.max_rounds,
             mode=session.strategy.mode.value,
             negotiation_history=history_str,
+            current_quantity=session.inventory.requested_quantity,
+            conversation_messages=conversation_messages,
         )
 
         result = self.llm.generate_sync(
             system_prompt=llm_prompts.CHAT_UNDERSTANDING_SYSTEM_PROMPT,
             user_prompt=prompt,
-            temperature=0.4,
+            temperature=0.3,
         )
 
         if not result.success:
@@ -381,10 +565,34 @@ class NegotiationEngine:
 
             data = json.loads(content)
             has_price = data.get("has_price", False)
-            extracted_price = data.get("extracted_price")
-            reply = data.get("reply", "")
 
-            return (has_price, extracted_price, reply)
+            # Parse unit / total price (new schema)
+            unit_price = data.get("extracted_unit_price")
+            total_price = data.get("extracted_total_price")
+
+            # Backward compat: if old-style `extracted_price` is present and
+            # neither new field was set, treat it as unit price.
+            if unit_price is None and total_price is None:
+                legacy = data.get("extracted_price")
+                if legacy is not None:
+                    unit_price = legacy
+
+            reply = data.get("reply", "")
+            has_qty_change = data.get("has_quantity_change", False)
+            extracted_qty = data.get("extracted_quantity")
+
+            # Validate quantity
+            if extracted_qty is not None:
+                try:
+                    extracted_qty = int(extracted_qty)
+                    if extracted_qty <= 0:
+                        extracted_qty = None
+                        has_qty_change = False
+                except (ValueError, TypeError):
+                    extracted_qty = None
+                    has_qty_change = False
+
+            return (has_price, unit_price, total_price, reply, has_qty_change, extracted_qty)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("chat_understanding_parse_error", error=str(e))
             return None
