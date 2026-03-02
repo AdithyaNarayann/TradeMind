@@ -86,7 +86,7 @@ TUNING = {
 
     # ── ZOPA ─────────────────────────────────────────────────
     "zopa_wtp_to_price_factor":             1.15,
-    "zopa_no_overlap_max_rounds":           2,
+    "zopa_no_overlap_max_rounds":           4,
 
     # ── Historical target ────────────────────────────────────
     "target_margin_default":                0.20,
@@ -172,7 +172,12 @@ TUNING = {
     #   accepting a lowball just because rounds ran out.
     "last_round_min_counter_ratio":         0.90,
 
-    # ── Redemption (unfreeze after genuine improvement) ────────
+    # ── Redemption (context-aware unfreeze) ──────────────────
+    #   To unfreeze, buyer must bridge redemption_bridge_pct of the
+    #   gap between their best pre-freeze offer and the frozen counter.
+    "redemption_bridge_pct":                0.40,
+
+    # Legacy keys kept for reference; no longer drive unfreezing:
     "redemption_good_moves":                2,
     "redemption_cumulative_pct":            0.06,
 
@@ -1055,17 +1060,20 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
     #   On increase: if old counters are above the new (lower)
     #   bulk_target_price, they don't reflect the volume discount
     #   — clear so concession restarts from bulk_target_price.
+    # Always clear freeze state — the freeze was based on the
+    # old-qty behaviour and doesn't apply after a qty change.
+    s.final_offer_issued = False
+    s.consecutive_stagnant = 0
+    s.retrograde_count = 0
+    s.good_faith_after_final = 0
+    s._post_redemption_round = -1
+    s._freeze_low_offer = 0.0
+    s._freeze_offer_idx = -1
+
     if s.quantity < old_qty or (
         s.counter_history and s.counter_history[-1] > s.bulk_target_price + 0.01
     ):
         s.counter_history.clear()
-        s.final_offer_issued = False
-        s.consecutive_stagnant = 0
-        s.retrograde_count = 0
-        s.good_faith_after_final = 0
-        s._post_redemption_round = -1
-        s._freeze_low_offer = 0.0
-        s._freeze_offer_idx = -1
 
         # ── Reset round tracking ─────────────────────────────
         #   Counter restarts from bulk_target — stale round
@@ -1164,52 +1172,39 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     # ── STEP 5: Update BBI (ALWAYS — tracks buyer behavior) ──
     state.bbi, bbi_tag = _update_bbi(state, extraction)
 
-    # ── STEP 5.5: Redemption — unfreeze after genuine improvement ──
-    #   Two independent paths can unfreeze a locked-out buyer:
-    #   A) Per-move: N consecutive big upward moves (≥4% each).
-    #   B) Cumulative: total improvement from freeze-point low
-    #      reaches ≥6%, with no retrograde since freeze.
-    #   Either path triggers redemption.  Counter ratchet (STEP 10.1)
-    #   independently prevents concessions unless buyer beats
-    #   their all-time best, so redemption alone doesn't give a
-    #   lower counter.
-    redemption_threshold = (
-        TUNING["redemption_good_moves"]
-        + max(0, state.manipulation_events - 1)
-    )
-    # Path A: consecutive per-move good jumps
-    per_move_redeemed = (
-        state.final_offer_issued
-        and state.good_faith_after_final >= redemption_threshold
-    )
-    # Path B: cumulative climb from freeze-point low
-    #   Requires at least 3 consecutive upward moves to prevent a
-    #   single big jump from bypassing the per-move path.
-    MIN_CUMULATIVE_MOVES = 3
-    cumulative_redeemed = False
+    # ── STEP 5.5: Context-aware redemption ──────────────────────
+    #   Single-offer unfreeze: the buyer must demonstrate genuine
+    #   intent by offering MORE than their best pre-freeze offer by
+    #   a meaningful fraction of the gap between that best offer and
+    #   the frozen counter.  Tiny $1 increments past the context
+    #   best will NOT unfreeze — the buyer must "bridge the gap."
+    #
+    #   Formula:
+    #     context_best  = max(offer_history up to & including freeze)
+    #     frozen_counter = counter at time of freeze
+    #     gap           = frozen_counter − context_best
+    #     threshold     = context_best + gap × redemption_bridge_pct
+    #
+    #   If current offer ≥ threshold → unfreeze and resume normal
+    #   negotiation.  Counter ratchet (STEP 10.1) independently
+    #   prevents unearned concessions.
+    context_redeemed = False
     if (state.final_offer_issued
-            and state._freeze_low_offer > 0
             and state._freeze_offer_idx >= 0
-            and len(state.offer_history) > state._freeze_offer_idx + 1):
-        offers_since = state.offer_history[state._freeze_offer_idx:]
-        num_moves = len(offers_since) - 1  # moves, not offers
-        # Every offer since freeze must be non-decreasing (no retrograde)
-        monotonic = all(
-            b >= a - 0.001
-            for a, b in zip(offers_since, offers_since[1:])
-        )
-        # Use base_price as denominator so 6% means 6% of the
-        # actual product value, not 6% of a manipulated low anchor.
-        cumulative_pct = (
-            (state.offer_history[-1] - state._freeze_low_offer)
-            / state.base_price
-        )
-        if (monotonic
-                and num_moves >= MIN_CUMULATIVE_MOVES
-                and cumulative_pct >= TUNING["redemption_cumulative_pct"]):
-            cumulative_redeemed = True
+            and state.counter_history):
+        # Best offer the buyer made before / at the freeze point
+        context_best = max(state.offer_history[:state._freeze_offer_idx + 1])
+        # The counter that was frozen
+        frozen_counter = state.counter_history[-1]
+        gap = max(frozen_counter - context_best, 0.0)
+        bridge_pct = TUNING["redemption_bridge_pct"]
+        redemption_threshold = context_best + gap * bridge_pct
 
-    if per_move_redeemed or cumulative_redeemed:
+        current_offer = state.offer_history[-1]
+        if current_offer >= redemption_threshold:
+            context_redeemed = True
+
+    if context_redeemed:
         state.final_offer_issued = False
         state.consecutive_stagnant = 0
         # One-strike rule: set retrograde_count to trigger-1 so a
@@ -1272,18 +1267,32 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         )
 
     # ── STEP 8: ZOPA check ────────────────────────────────────
+    #   Only count no-overlap rounds AFTER the anchor-resist phase.
+    #   Early lowballs are normal tactics, not proof of no overlap.
     buyer_ceiling = _estimate_buyer_ceiling(state)
     meaningful_overlap = buyer_ceiling >= state.dynamic_floor + (0.01 * state.base_price)
-    if not meaningful_overlap:
-        state.zopa_no_overlap_count += 1
-    else:
-        state.zopa_no_overlap_count = 0
+    if state.phase != NegotiationPhase.ANCHOR_RESIST:
+        if not meaningful_overlap:
+            state.zopa_no_overlap_count += 1
+        else:
+            state.zopa_no_overlap_count = 0
 
     if state.zopa_no_overlap_count >= TUNING["zopa_no_overlap_max_rounds"]:
         state.final_offer_issued = True
-        state.counter_history.append(state.dynamic_floor)
+        # Use last counter, not floor — jumping to floor is an
+        # unearned gift to the buyer.  Signal firmness by holding
+        # at the current negotiation position.
+        anchor = (
+            state.counter_history[-1]
+            if state.counter_history
+            else state.bulk_target_price
+        )
+        # Record freeze-point for cumulative redemption tracking
+        state._freeze_low_offer = state.offer_history[-1] if state.offer_history else 0.0
+        state._freeze_offer_idx = len(state.offer_history) - 1
+        state.counter_history.append(anchor)
         return _build_result(
-            state, "final_offer", state.dynamic_floor,
+            state, "final_offer", anchor,
             ReasoningTag.ZOPA_NO_OVERLAP, buyer_ceiling,
         )
 

@@ -1414,16 +1414,17 @@ class TestOneStrikeAndProgressive:
         assert state.manipulation_events == 2
 
     def test_progressive_redemption_needs_more_moves(self):
-        """Second redemption cycle needs 3 good moves (2 base + 1 penalty)."""
+        """Second redemption cycle uses the higher context-best from the
+        new freeze point, making it naturally harder to unfreeze."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=20,
         )
-        # First cycle: freeze → redeem (2 good moves)
+        # First cycle: freeze → redeem
         process_round(state, _make_extraction(unit_price_offered=50.0))
         process_round(state, _make_extraction(unit_price_offered=45.0))
         process_round(state, _make_extraction(unit_price_offered=40.0))  # freeze
-        process_round(state, _make_extraction(unit_price_offered=60.0))  # good 1
-        process_round(state, _make_extraction(unit_price_offered=70.0))  # good 2 → redeemed
+        # Threshold ≈ 50 + (97.75-50)*0.4 ≈ 69.10
+        process_round(state, _make_extraction(unit_price_offered=70.0))  # ≥ 69.10 → redeemed
         assert state.final_offer_issued is False
         assert state.manipulation_events == 1
 
@@ -1432,17 +1433,19 @@ class TestOneStrikeAndProgressive:
         assert state.final_offer_issued is True
         assert state.manipulation_events == 2
 
-        # Second redemption: now needs 3 good moves (2 + max(0, 2-1) = 3)
-        process_round(state, _make_extraction(unit_price_offered=75.0))  # good 1
-        assert state.good_faith_after_final == 1
-        assert state.final_offer_issued is True  # not yet
+        # Second cycle: context_best is now 70 (best up to new freeze point)
+        # frozen counter ≈ 97.29, threshold ≈ 70 + (97.29-70)*0.4 ≈ 80.92
+        # 75 < ~80.92 → still frozen
+        process_round(state, _make_extraction(unit_price_offered=75.0))
+        assert state.final_offer_issued is True, (
+            "75 should be below 2nd-cycle threshold (~80.92)"
+        )
 
-        process_round(state, _make_extraction(unit_price_offered=85.0))  # good 2
-        assert state.good_faith_after_final == 2
-        assert state.final_offer_issued is True  # STILL not (need 3)
-
-        process_round(state, _make_extraction(unit_price_offered=92.0))  # good 3 → redeemed
-        assert state.final_offer_issued is False  # NOW redeemed
+        # 85 > ~80.92 → redeemed
+        process_round(state, _make_extraction(unit_price_offered=85.0))
+        assert state.final_offer_issued is False, (
+            "85 should exceed 2nd-cycle threshold (~80.92)"
+        )
 
     def test_manipulation_events_persists_across_qty_change(self):
         """manipulation_events is never reset, even on quantity change."""
@@ -1650,34 +1653,30 @@ class TestPostRedemptionProtection:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestCumulativeRedemption:
-    """Verify the cumulative redemption path unfreezes buyers who
-    make sustained upward movement even when no single jump >= 4%."""
+    """Verify the context-aware redemption path unfreezes buyers who
+    bridge a meaningful fraction of the gap between their best pre-freeze
+    offer and the frozen counter."""
 
-    def test_cumulative_climb_unfreezes(self):
-        """A buyer who climbs >= 6% total from freeze-point low
-        with monotonically non-decreasing offers should unfreeze."""
+    def test_single_jump_above_threshold_unfreezes(self):
+        """A single offer that bridges ≥40% of the gap should unfreeze."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=15,
         )
-        # Trigger freeze via retrograde
+        # Trigger freeze via retrograde: 70→65→60
         process_round(state, _make_extraction(unit_price_offered=70.0))
         process_round(state, _make_extraction(unit_price_offered=65.0))
         process_round(state, _make_extraction(unit_price_offered=60.0))
         assert state.final_offer_issued is True
-        assert state._freeze_low_offer == 60.0
 
-        # Climb monotonically: 60→63→66→67 (cumulative 11.7% from 60)
-        # No single jump >= 4%: 5%, 4.76%, 1.5%
-        process_round(state, _make_extraction(unit_price_offered=63.0))
-        assert state.final_offer_issued is True  # 5% single jump, good_faith=1 (need 2)
-        process_round(state, _make_extraction(unit_price_offered=66.0))
-        # Per-move path fires: 63→66 is 4.76% ≥ 4%, good_faith reaches 2 → redeemed
+        # threshold ≈ 70 + (frozen_counter - 70) * 0.40  ≈ 81.24
+        # Offer 85 > threshold → should unfreeze
+        process_round(state, _make_extraction(unit_price_offered=85.0))
         assert state.final_offer_issued is False, (
-            "Two consecutive ≥4% moves should trigger per-move redemption"
+            "Offer of 85 should bridge the gap and trigger context-aware redemption"
         )
 
-    def test_cumulative_climb_unfreezes_exact(self):
-        """Exact threshold check: 6% of base_price cumulative climb."""
+    def test_offer_below_threshold_stays_frozen(self):
+        """An offer below the threshold should NOT unfreeze."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=15,
         )
@@ -1686,20 +1685,11 @@ class TestCumulativeRedemption:
         process_round(state, _make_extraction(unit_price_offered=65.0))
         process_round(state, _make_extraction(unit_price_offered=60.0))
         assert state.final_offer_issued is True
-        assert state._freeze_low_offer == 60.0
 
-        # 62.0 → (62-60)/100 = 2% — not enough
-        process_round(state, _make_extraction(unit_price_offered=62.0))
-        assert state.final_offer_issued is True
-
-        # 64.0 → (64-60)/100 = 4% — still below 6%
-        process_round(state, _make_extraction(unit_price_offered=64.0))
-        assert state.final_offer_issued is True
-
-        # 66.0 → (66-60)/100 = 6% at threshold, 3 moves, should unfreeze
-        process_round(state, _make_extraction(unit_price_offered=66.0))
-        assert state.final_offer_issued is False, (
-            "Cumulative 6% of base_price climb should trigger redemption"
+        # threshold ≈ 81.24; offer 78 < threshold → still frozen
+        process_round(state, _make_extraction(unit_price_offered=78.0))
+        assert state.final_offer_issued is True, (
+            "Offer of 78 should NOT unfreeze (below threshold ~81.24)"
         )
 
     def test_micro_increments_dont_unfreeze(self):
@@ -1723,9 +1713,9 @@ class TestCumulativeRedemption:
                 f"Micro-increment ${price} should NOT unfreeze (only {(price/60-1)*100:.1f}%)"
             )
 
-    def test_retrograde_during_recovery_blocks_cumulative(self):
-        """A retrograde move during recovery should prevent cumulative
-        redemption even if total climb exceeds threshold."""
+    def test_retrograde_during_recovery_doesnt_block_redemption(self):
+        """With context-aware redemption, retrograde during recovery doesn't
+        matter — only the current offer vs threshold matters."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=15,
         )
@@ -1735,18 +1725,18 @@ class TestCumulativeRedemption:
         process_round(state, _make_extraction(unit_price_offered=60.0))
         assert state.final_offer_issued is True
 
-        # Go up, then retrograde, then up past threshold
-        process_round(state, _make_extraction(unit_price_offered=63.0))
-        process_round(state, _make_extraction(unit_price_offered=62.0))  # Retrograde!
-        process_round(state, _make_extraction(unit_price_offered=64.0))  # 6.7% total
-        # Despite 64/60 = 6.7% > 6%, the retrograde at 62 breaks monotonicity
-        assert state.final_offer_issued is True, (
-            "Retrograde during recovery should block cumulative redemption"
+        # Go up, retrograde, then big jump above threshold (~81.24)
+        process_round(state, _make_extraction(unit_price_offered=75.0))
+        process_round(state, _make_extraction(unit_price_offered=72.0))  # Retrograde!
+        # Despite retrograde, an offer above threshold should unfreeze
+        process_round(state, _make_extraction(unit_price_offered=85.0))
+        assert state.final_offer_issued is False, (
+            "Context-aware redemption should unfreeze on 85 regardless of retrograde"
         )
 
-    def test_per_move_path_still_works_independently(self):
-        """The per-move consecutive-jumps path should still work
-        even without cumulative tracking."""
+    def test_context_aware_single_jump_unfreezes(self):
+        """A single big jump that bridges the gap should unfreeze,
+        no need for consecutive moves."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=15,
         )
@@ -1756,17 +1746,16 @@ class TestCumulativeRedemption:
         process_round(state, _make_extraction(unit_price_offered=60.0))
         assert state.final_offer_issued is True
 
-        # Two consecutive >=4% jumps: 70 (+16.7%), 75 (+7.1%)
-        process_round(state, _make_extraction(unit_price_offered=70.0))
-        process_round(state, _make_extraction(unit_price_offered=75.0))
+        # Single jump to 85 → should unfreeze (threshold ~81.24)
+        process_round(state, _make_extraction(unit_price_offered=85.0))
         assert state.final_offer_issued is False, (
-            "Per-move path (2 consecutive >=4% jumps) should still trigger redemption"
+            "Single big jump should trigger context-aware redemption"
         )
 
     def test_led_bulb_scenario(self):
         """Simulate the LED bulb transcript: $899 base, qty=10.
-        Buyer: 800→790→780(freeze)→800→800.10→800.20→802→820→830.
-        Cumulative: 830/780 - 1 = 6.4% > 6% → should unfreeze."""
+        Buyer: 800→790→780(freeze)→800→800.10→800.20→802→820→835.
+        Context-aware threshold ≈ 816.70. R8 ($820) should unfreeze."""
         state = _make_state(
             base_price=899.0, cost_price=350.0, min_floor=350.0,
             max_rounds=10, quantity=10,
@@ -1782,30 +1771,24 @@ class TestCumulativeRedemption:
         # R3: 780 — retrograde #2 → freeze
         r3 = process_round(state, _make_extraction(unit_price_offered=780.0))
         assert state.final_offer_issued is True
-        assert state._freeze_low_offer == 780.0
+        frozen_counter = state.counter_history[-1]
 
-        # R4-R6: Small increments (monotonic)
+        # R4-R6: Small increments (monotonic, all below threshold ~816.70)
         process_round(state, _make_extraction(unit_price_offered=800.0))
-        assert state.final_offer_issued is True  # 2.6% — too low
+        assert state.final_offer_issued is True
         process_round(state, _make_extraction(unit_price_offered=800.10))
         assert state.final_offer_issued is True
         process_round(state, _make_extraction(unit_price_offered=800.20))
         assert state.final_offer_issued is True
 
-        # R7: 802 — still below 6%
+        # R7: 802 — still below threshold
         process_round(state, _make_extraction(unit_price_offered=802.0))
-        assert state.final_offer_issued is True  # 802/780-1=2.8%
-
-        # R8: 820 — (820-780)/899=4.4% — still below 6%
-        process_round(state, _make_extraction(unit_price_offered=820.0))
         assert state.final_offer_issued is True
 
-        # R9: 835 — (835-780)/899=6.1% > 6% → cumulative redemption fires!
-        process_round(state, _make_extraction(unit_price_offered=835.0))
+        # R8: 820 — exceeds threshold (~816.70) → context-aware redemption fires!
+        process_round(state, _make_extraction(unit_price_offered=820.0))
         assert state.final_offer_issued is False, (
-            f"(835-780)/899 = {(835-780)/899:.4f} (6.1%) should trigger cumulative redemption. "
-            f"freeze_low={state._freeze_low_offer}, offers_since_freeze="
-            f"{state.offer_history[state._freeze_offer_idx:] if state._freeze_offer_idx >= 0 else 'N/A'}"
+            f"$820 should exceed context-aware threshold (~816.70) and unfreeze."
         )
 
     def test_freeze_fields_reset_on_redemption(self):
@@ -1821,9 +1804,8 @@ class TestCumulativeRedemption:
         assert state._freeze_low_offer == 60.0
         assert state._freeze_offer_idx >= 0
 
-        # Redeem via per-move path
-        process_round(state, _make_extraction(unit_price_offered=70.0))
-        process_round(state, _make_extraction(unit_price_offered=75.0))
+        # Redeem via context-aware path (threshold ~81.24)
+        process_round(state, _make_extraction(unit_price_offered=85.0))
         assert state.final_offer_issued is False
         assert state._freeze_low_offer == 0.0
         assert state._freeze_offer_idx == -1
@@ -2018,7 +2000,7 @@ class TestSamsungTranscriptScenario:
         )
 
     def test_redemption_fires_and_counter_eventually_moves(self):
-        """After freeze + redemption, counter drops when buyer beats all-time best."""
+        """After freeze + context-aware redemption, counter drops when buyer bridges gap."""
         state = _make_state(
             base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
             max_rounds=10,
@@ -2030,14 +2012,17 @@ class TestSamsungTranscriptScenario:
         assert state.final_offer_issued is True
         frozen_counter = state.counter_history[-1]
 
-        # R4-R5: redemption (two good moves)
-        process_round(state, _make_extraction(unit_price_offered=7000.0))
-        process_round(state, _make_extraction(unit_price_offered=8000.0))
-        assert state.final_offer_issued is False, "Per-move redemption should have fired"
+        # Context-aware threshold ≈ 8000 + (frozen_counter - 8000)*0.4 ≈ 11052.80
+        # R4: below threshold → still frozen
+        process_round(state, _make_extraction(unit_price_offered=9000.0))
+        assert state.final_offer_issued is True
 
-        # R6: buyer beats all-time best ($8001 > $8000) → concession allowed
-        r6 = process_round(state, _make_extraction(unit_price_offered=8001.0))
-        # Counter should be <= frozen_counter (concession happened or held)
+        # R5: above threshold → redemption fires!
+        process_round(state, _make_extraction(unit_price_offered=12000.0))
+        assert state.final_offer_issued is False, "Context-aware redemption should fire on 12000"
+
+        # R6: buyer beats all-time best → concession allowed
+        r6 = process_round(state, _make_extraction(unit_price_offered=13000.0))
         assert r6.counter_unit_price <= frozen_counter, (
             f"Post-redemption counter {r6.counter_unit_price} should not "
             f"exceed frozen {frozen_counter}"
@@ -2047,14 +2032,228 @@ class TestSamsungTranscriptScenario:
         """Full Samsung transcript: last round must result in accept or reject."""
         state = _make_state(
             base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
-            max_rounds=10,
+            max_rounds=12,
         )
-        offers = [8000, 7000, 6000, 7000, 8000, 8001, 9000, 11000, 14000]
+        # R1-R3: freeze via retrograde
+        # R4-R5: below context-aware threshold (~11052)
+        # R6: above threshold → redemption (extends to 15 rounds)
+        # R7-R11: normal negotiation, climbing
+        offers = [8000, 7000, 6000, 9000, 10000, 12000, 13000, 14000, 14500, 15000, 15500]
         for o in offers:
             process_round(state, _make_extraction(unit_price_offered=float(o)))
 
-        # R10: $14001
-        r10 = process_round(state, _make_extraction(unit_price_offered=14001.0))
-        assert r10.decision in ("accept", "reject"), (
-            f"Last round with $14001: expected accept/reject, got '{r10.decision}'"
+        # Final round
+        r_last = process_round(state, _make_extraction(unit_price_offered=15600.0))
+        assert r_last.decision in ("accept", "reject"), (
+            f"Last round with $15600: expected accept/reject, got '{r_last.decision}'"
         )
+
+
+class TestFreezeAlwaysClearedOnQtyChange:
+    """
+    Freeze state must ALWAYS be cleared when quantity changes, even
+    if counter_history entries are below the new bulk_target_price.
+    """
+
+    def test_freeze_cleared_on_qty_increase_counter_below_target(self):
+        """Qty up where last counter < new bulk_target → freeze still clears."""
+        state = _make_state(
+            base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
+            max_rounds=10,
+        )
+        # Freeze via retrograde
+        process_round(state, _make_extraction(unit_price_offered=8000.0))
+        process_round(state, _make_extraction(unit_price_offered=7000.0))
+        r3 = process_round(state, _make_extraction(unit_price_offered=6000.0))
+        assert state.final_offer_issued is True
+        frozen_counter = state.counter_history[-1]
+
+        # Qty 1→2: bulk_target ≈ $15,461 > frozen_counter ($15,961 or similar)
+        # Even if counter is valid for new qty, freeze should clear.
+        process_round(state, _make_extraction(unit_price_offered=7000.0, quantity=2))
+        assert state.final_offer_issued is False, (
+            "Qty change should ALWAYS clear freeze, even if counters kept"
+        )
+        assert state.retrograde_count == 0
+        assert state.good_faith_after_final == 0
+        assert state._freeze_low_offer == 0.0
+
+    def test_freeze_cleared_on_qty_decrease(self):
+        """Qty decrease should clear freeze AND counter_history."""
+        state = _make_state(
+            base_price=100.0, cost_price=50.0, min_floor=55.0,
+            max_rounds=10, quantity=5,
+        )
+        # Freeze
+        process_round(state, _make_extraction(unit_price_offered=60.0))
+        process_round(state, _make_extraction(unit_price_offered=55.0))
+        process_round(state, _make_extraction(unit_price_offered=50.0))
+        assert state.final_offer_issued is True
+
+        # Qty 5→2: decrease always clears everything
+        process_round(state, _make_extraction(unit_price_offered=60.0, quantity=2))
+        assert state.final_offer_issued is False
+        assert len(state.counter_history) <= 1  # only the new round's counter
+
+    def test_qty_change_after_freeze_allows_normal_negotiation(self):
+        """After freeze+qty change, normal concession should resume."""
+        state = _make_state(
+            base_price=100.0, cost_price=50.0, min_floor=55.0,
+            max_rounds=15,
+        )
+        # Freeze
+        process_round(state, _make_extraction(unit_price_offered=70.0))
+        process_round(state, _make_extraction(unit_price_offered=65.0))
+        process_round(state, _make_extraction(unit_price_offered=60.0))
+        assert state.final_offer_issued is True
+
+        # Qty change unfreezes
+        r_qty = process_round(state, _make_extraction(unit_price_offered=70.0, quantity=3))
+        assert state.final_offer_issued is False
+        # Should be a normal counter, not final_offer
+        assert r_qty.decision in ("counter", "accept"), (
+            f"After qty change unfreezing, expected counter/accept, "
+            f"got '{r_qty.decision}'"
+        )
+
+
+class TestZopaNoOverlap:
+    """
+    ZOPA_NO_OVERLAP should:
+    1. Not fire during ANCHOR_RESIST phase (early lowballs are expected)
+    2. Require 4 consecutive no-overlap rounds before triggering
+    3. Use the last counter (not floor) as the final offer price
+    4. Set freeze-point fields for redemption tracking
+    """
+
+    def _make_low_margin_state(self, **overrides):
+        """Create a state with thin margin where WTP drops fast."""
+        defaults = dict(
+            base_price=16000.0,
+            cost_price=13900.0,  # ~13% margin → floor ~$15,012
+            min_floor=13900.0,
+            max_rounds=10,
+        )
+        defaults.update(overrides)
+        return _make_state(**defaults)
+
+    def test_zopa_does_not_fire_during_anchor_resist(self):
+        """R1 (anchor-resist phase) should never count toward ZOPA."""
+        state = self._make_low_margin_state()
+        # R1: extreme lowball during anchor-resist
+        process_round(state, _make_extraction(unit_price_offered=1000.0))
+        assert state.zopa_no_overlap_count == 0, (
+            "Anchor-resist round should not count toward ZOPA"
+        )
+
+    def test_zopa_requires_four_consecutive_rounds(self):
+        """ZOPA should not fire until 4 consecutive no-overlap rounds."""
+        state = self._make_low_margin_state()
+        # R1: anchor resist — doesn't count
+        r1 = process_round(state, _make_extraction(unit_price_offered=5000.0))
+        assert state.zopa_no_overlap_count == 0
+
+        # R2-R4: three consecutive no-overlap rounds (WTP tanks)
+        for i, offer in enumerate([5500, 6000, 6500], start=2):
+            r = process_round(state, _make_extraction(unit_price_offered=float(offer)))
+            assert not state.final_offer_issued, (
+                f"ZOPA should not fire at round {i} with only "
+                f"{state.zopa_no_overlap_count} no-overlap rounds"
+            )
+
+        # R5: fourth no-overlap round — NOW ZOPA fires
+        r5 = process_round(state, _make_extraction(unit_price_offered=7000.0))
+        assert state.final_offer_issued is True
+        assert r5.reasoning_tag.value == "ZOPA_NO_OVERLAP"
+
+    def test_zopa_uses_last_counter_not_floor(self):
+        """When ZOPA fires, the final offer should be the last counter,
+        not the dynamic floor."""
+        state = self._make_low_margin_state()
+        # Build up 4 rounds of no-overlap after anchor resist
+        offers = [5000, 5500, 6000, 6500, 7000]
+        last_counter_before_zopa = None
+        for o in offers:
+            if state.counter_history:
+                last_counter_before_zopa = state.counter_history[-1]
+            r = process_round(state, _make_extraction(unit_price_offered=float(o)))
+            if r.reasoning_tag.value == "ZOPA_NO_OVERLAP":
+                # ZOPA fired — check it used last counter, not floor
+                assert r.counter_unit_price > state.dynamic_floor + 1.0, (
+                    f"ZOPA final offer {r.counter_unit_price} should be above "
+                    f"floor {state.dynamic_floor}. Last counter was "
+                    f"{last_counter_before_zopa}"
+                )
+                assert r.counter_unit_price == last_counter_before_zopa, (
+                    f"ZOPA final offer {r.counter_unit_price} should equal "
+                    f"last counter {last_counter_before_zopa}"
+                )
+                break
+        else:
+            pytest.fail("ZOPA should have fired within the offer sequence")
+
+    def test_zopa_sets_freeze_fields_for_redemption(self):
+        """ZOPA should set freeze-point data so cumulative redemption works."""
+        state = self._make_low_margin_state()
+        offers = [5000, 5500, 6000, 6500, 7000]
+        for o in offers:
+            process_round(state, _make_extraction(unit_price_offered=float(o)))
+        assert state.final_offer_issued is True
+        assert state._freeze_low_offer > 0, "freeze_low_offer should be set"
+        assert state._freeze_offer_idx >= 0, "freeze_offer_idx should be set"
+
+    def test_zopa_overlap_resets_count(self):
+        """A round with meaningful overlap should reset the ZOPA counter."""
+        state = _make_state(
+            base_price=1000.0, cost_price=400.0, min_floor=440.0,
+            max_rounds=10,
+        )
+        # R1: lowball (anchor resist)
+        process_round(state, _make_extraction(unit_price_offered=100.0))
+        # R2-R3: some low offers → ZOPA count builds
+        process_round(state, _make_extraction(unit_price_offered=200.0))
+        count_after_r2 = state.zopa_no_overlap_count
+        # R3: a high enough offer to create overlap → resets count
+        process_round(state, _make_extraction(unit_price_offered=900.0))
+        assert state.zopa_no_overlap_count == 0, (
+            f"ZOPA count should reset on overlap round, was {state.zopa_no_overlap_count}"
+        )
+
+
+class TestPromptTemplateNoNameError:
+    """Verify the LLM prompt template doesn't raise NameError."""
+
+    def test_build_prompt_no_error(self):
+        """build_chat_understanding_prompt should not raise NameError."""
+        from app.infrastructure.llm.prompt_templates import build_chat_understanding_prompt
+        # Should work without crashing (the {qty} bug would raise NameError)
+        prompt = build_chat_understanding_prompt(
+            buyer_message="2 units for 15000",
+            product_name="Samsung Mobile",
+            base_price="16000",
+            our_last_offer="15961",
+            current_round=3,
+            max_rounds=10,
+            mode="MAX_PROFIT",
+            negotiation_history="R1: S=15961, B=7000; R2: S=15950, B=8000",
+            current_quantity=1,
+        )
+        assert isinstance(prompt, str)
+        assert "Samsung Mobile" in prompt
+
+    def test_build_prompt_with_quantity_gt_1(self):
+        """Prompt with quantity > 1 should also work without NameError."""
+        from app.infrastructure.llm.prompt_templates import build_chat_understanding_prompt
+        prompt = build_chat_understanding_prompt(
+            buyer_message="give me 3 for 20000",
+            product_name="Widget",
+            base_price="10000",
+            our_last_offer="9500",
+            current_round=2,
+            max_rounds=10,
+            mode="MAX_PROFIT",
+            negotiation_history="R1: S=9500, B=5000",
+            current_quantity=3,
+        )
+        assert isinstance(prompt, str)
+        assert "Widget" in prompt

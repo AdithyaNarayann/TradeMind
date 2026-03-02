@@ -393,6 +393,45 @@ class NegotiationEngine:
                                 has_price_offer=False,
                             )
 
+                    # ── Disambiguation: qty UP + price likely means TOTAL ──
+                    #   When a buyer says "2 units for $15000" or "$15000
+                    #   for both", the LLM often extracts $15000 as a
+                    #   per-unit price.  But no rational buyer who's been
+                    #   fighting to REDUCE the per-unit price would
+                    #   simultaneously increase quantity AND pay the same
+                    #   per-unit rate (doubling total spend).  If treating
+                    #   the number as per-unit makes total spend jump far
+                    #   beyond the buyer's prior offers, reinterpret it
+                    #   as a total price.
+                    if (has_qty_change and new_qty and new_qty > 1
+                            and has_price
+                            and unit_price is not None and unit_price > 0
+                            and (total_price is None or total_price <= 0)):
+                        old_qty = session.inventory.requested_quantity
+                        if new_qty > old_qty:
+                            eng_s = state.engine_state
+                            buyer_max_offer = 0.0
+                            if eng_s and eng_s.offer_history:
+                                buyer_max_offer = max(eng_s.offer_history)
+                            elif state and state.buyer_history:
+                                buyer_max_offer = float(max(state.buyer_history))
+                            # If per-unit interpretation makes total spend
+                            # exceed 1.5× the buyer's best prior per-unit
+                            # offer × old_qty, it's almost certainly a total.
+                            implied_total = unit_price * new_qty
+                            prior_total = buyer_max_offer * old_qty if buyer_max_offer > 0 else 0
+                            if prior_total > 0 and implied_total > prior_total * 1.5:
+                                logger.info(
+                                    "qty_price_disambiguation",
+                                    unit_price=unit_price,
+                                    new_qty=new_qty,
+                                    implied_total=implied_total,
+                                    prior_total=prior_total,
+                                    action="reinterpret_as_total",
+                                )
+                                total_price = unit_price
+                                unit_price = None
+
                     # Handle quantity change (with or without a price offer)
                     if has_qty_change and new_qty is not None and new_qty > 0:
                         self._apply_quantity_change(session, new_qty)
@@ -627,16 +666,22 @@ class NegotiationEngine:
         #   Either way, clear and let concession restart from the
         #   correct bulk_target_price.
         if new_qty != old_qty:
-            # Only clear if counter_history has stale entries above bulk target
-            # (or on decrease, always clear to prevent exploit)
+            # Always clear freeze state — the freeze was based on
+            # old-qty behaviour and doesn't apply after a qty change.
+            eng.final_offer_issued = False
+            eng.consecutive_stagnant = 0
+            eng.retrograde_count = 0
+            eng.good_faith_after_final = 0
+            eng._freeze_low_offer = 0.0
+            eng._freeze_offer_idx = -1
+            eng._post_redemption_round = -1
+
+            # Clear counter history only when entries are stale
+            # (on decrease, or when counters exceed new bulk target)
             if new_qty < old_qty or (
                 eng.counter_history and eng.counter_history[-1] > eng.bulk_target_price + 0.01
             ):
                 eng.counter_history.clear()
-                eng.final_offer_issued = False
-                eng.consecutive_stagnant = 0
-                eng.retrograde_count = 0
-                eng.good_faith_after_final = 0
 
                 # Reset round tracking — counter restarts from
                 # bulk_target, so stale round pressure would inflate
