@@ -1669,16 +1669,15 @@ class TestCumulativeRedemption:
         # Climb monotonically: 60→63→66→67 (cumulative 11.7% from 60)
         # No single jump >= 4%: 5%, 4.76%, 1.5%
         process_round(state, _make_extraction(unit_price_offered=63.0))
-        assert state.final_offer_issued is True  # 5% not enough alone
+        assert state.final_offer_issued is True  # 5% single jump, good_faith=1 (need 2)
         process_round(state, _make_extraction(unit_price_offered=66.0))
-        assert state.final_offer_issued is True  # 10% cumulative — wait, 6/60=10%, > 6%
-        # Actually 66/60-1 = 10%. With threshold 6%, this should unfreeze
-        # But we need to re-check: the per-move path resets on non-4% jumps.
-        # The cumulative path should fire at 66.0 since 10% > 6%.
-        # Let's verify it actually unfroze at the 66.0 round:
+        # Per-move path fires: 63→66 is 4.76% ≥ 4%, good_faith reaches 2 → redeemed
+        assert state.final_offer_issued is False, (
+            "Two consecutive ≥4% moves should trigger per-move redemption"
+        )
 
     def test_cumulative_climb_unfreezes_exact(self):
-        """Exact threshold check: 6% cumulative from freeze-point."""
+        """Exact threshold check: 6% of base_price cumulative climb."""
         state = _make_state(
             base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=15,
         )
@@ -1689,18 +1688,18 @@ class TestCumulativeRedemption:
         assert state.final_offer_issued is True
         assert state._freeze_low_offer == 60.0
 
-        # 62.0 = 3.3% from 60 — not enough
+        # 62.0 → (62-60)/100 = 2% — not enough
         process_round(state, _make_extraction(unit_price_offered=62.0))
         assert state.final_offer_issued is True
 
-        # 63.5 = 5.8% from 60 — still below 6%
-        process_round(state, _make_extraction(unit_price_offered=63.5))
+        # 64.0 → (64-60)/100 = 4% — still below 6%
+        process_round(state, _make_extraction(unit_price_offered=64.0))
         assert state.final_offer_issued is True
 
-        # 63.6 = 6.0% from 60 — at threshold, should unfreeze
-        process_round(state, _make_extraction(unit_price_offered=63.6))
+        # 66.0 → (66-60)/100 = 6% at threshold, 3 moves, should unfreeze
+        process_round(state, _make_extraction(unit_price_offered=66.0))
         assert state.final_offer_issued is False, (
-            "Cumulative 6% climb should trigger redemption"
+            "Cumulative 6% of base_price climb should trigger redemption"
         )
 
     def test_micro_increments_dont_unfreeze(self):
@@ -1797,14 +1796,14 @@ class TestCumulativeRedemption:
         process_round(state, _make_extraction(unit_price_offered=802.0))
         assert state.final_offer_issued is True  # 802/780-1=2.8%
 
-        # R8: 820 — 820/780-1=5.1% — still below 6%
+        # R8: 820 — (820-780)/899=4.4% — still below 6%
         process_round(state, _make_extraction(unit_price_offered=820.0))
         assert state.final_offer_issued is True
 
-        # R9: 830 — 830/780-1=6.4% > 6% → cumulative redemption fires!
-        process_round(state, _make_extraction(unit_price_offered=830.0))
+        # R9: 835 — (835-780)/899=6.1% > 6% → cumulative redemption fires!
+        process_round(state, _make_extraction(unit_price_offered=835.0))
         assert state.final_offer_issued is False, (
-            f"830/780 = {830/780:.4f} (6.4%) should trigger cumulative redemption. "
+            f"(835-780)/899 = {(835-780)/899:.4f} (6.1%) should trigger cumulative redemption. "
             f"freeze_low={state._freeze_low_offer}, offers_since_freeze="
             f"{state.offer_history[state._freeze_offer_idx:] if state._freeze_offer_idx >= 0 else 'N/A'}"
         )
@@ -1844,3 +1843,33 @@ class TestCumulativeRedemption:
         process_round(state, _make_extraction(unit_price_offered=70.0, quantity=5))
         assert state._freeze_low_offer == 0.0
         assert state._freeze_offer_idx == -1
+
+    def test_dollar_increment_manipulation_blocked(self):
+        """Reproduce the transcript bug: $50→$40→$30 (freeze) then
+        $31→$32→$33→$34→$35. The counter must stay frozen at the
+        same value throughout. No concession on $1 increments."""
+        state = _make_state(
+            base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=10,
+        )
+        # Trigger freeze via retrograde: 50→40→30
+        r1 = process_round(state, _make_extraction(unit_price_offered=50.0))
+        c_first = r1.counter_unit_price
+
+        process_round(state, _make_extraction(unit_price_offered=40.0))
+        r3 = process_round(state, _make_extraction(unit_price_offered=30.0))
+        assert state.final_offer_issued is True
+        frozen_counter = state.counter_history[-1]
+
+        # $1 increments: counter must stay frozen, decision must be final_offer
+        for price in [31, 32, 33, 34, 35]:
+            r = process_round(state, _make_extraction(unit_price_offered=float(price)))
+            assert r.decision == "final_offer", (
+                f"At ${price}: expected 'final_offer', got '{r.decision}'"
+            )
+            assert r.counter_unit_price == frozen_counter, (
+                f"At ${price}: counter moved to {r.counter_unit_price}, "
+                f"should be frozen at {frozen_counter}"
+            )
+            assert state.final_offer_issued is True, (
+                f"At ${price}: freeze lifted prematurely"
+            )

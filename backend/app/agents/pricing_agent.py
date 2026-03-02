@@ -307,7 +307,30 @@ class PricingStrategyAgent:
                 base_extraction["bundle_request"] = bool(data.get("bundle_request"))
                 base_extraction["social_proof_claim"] = bool(data.get("social_proof_claim"))
                 if data.get("intent") in ("accept", "reject", "walkaway"):
-                    base_extraction["intent"] = data["intent"]
+                    # Guard: "I'll take it for $X" where X diverges
+                    # from the counter is a counter-offer, NOT acceptance.
+                    if (
+                        data["intent"] == "accept"
+                        and base_extraction["unit_price_offered"] is not None
+                    ):
+                        last_ctr = (
+                            eng.counter_history[-1]
+                            if eng and eng.counter_history
+                            else eng.base_price if eng else None
+                        )
+                        if last_ctr and last_ctr > 0:
+                            divergence = abs(
+                                base_extraction["unit_price_offered"] - last_ctr
+                            ) / last_ctr
+                            if divergence > 0.02:
+                                # >2% away from counter — it's an offer
+                                pass  # keep intent as "offer"
+                            else:
+                                base_extraction["intent"] = "accept"
+                        else:
+                            base_extraction["intent"] = "accept"
+                    else:
+                        base_extraction["intent"] = data["intent"]
                 # Merge quantity from LLM if not already set
                 llm_qty = data.get("quantity")
                 if llm_qty and base_extraction["quantity"] is None:
@@ -380,7 +403,7 @@ class PricingStrategyAgent:
         return PricingDecision(
             decision=decision,
             counter_offer_price=counter_price,
-            accepted_price=offered if decision == OfferDecision.ACCEPT else None,
+            accepted_price=Decimal(str(result.counter_unit_price)) if decision == OfferDecision.ACCEPT else None,
             margin_percentage=margin_pct,
             profit_per_unit=profit_unit,
             total_profit=total_profit,

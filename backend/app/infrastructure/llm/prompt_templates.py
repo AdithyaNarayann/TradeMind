@@ -482,6 +482,9 @@ Base per-unit price is ${base_price} → total for {current_quantity} units = ${
 When the buyer states a number:
   • If they say "per unit" or "each" → set extracted_unit_price.
   • If they say "total", "for {current_quantity} units", "for all" → set extracted_total_price.
+  • HEURISTIC — if the number is within 15% of our current per-unit offer (${our_last_offer}),
+    treat it as PER-UNIT even if the buyer says something like "X for {current_quantity} units".
+    Rationale: a serious counter-offer is usually near the current negotiation range.
   • If it is a BARE number (e.g. "1200"):
     – Check the conversation history below.  If the buyer has been using totals,
       this number is almost certainly a total → set extracted_total_price.
@@ -537,6 +540,12 @@ TASK:
    - NEVER reveal cost price, margins, or minimum acceptable price
    - Encourage them to make a specific price offer
 
+5. Does the buyer accept or agree to the seller's current counter-offer?
+   - STRONG acceptance: "ok deal", "deal", "I accept", "agreed", "done", "let's do it", "I'll take it"
+   - SOFT / ambiguous: just "ok", "fine", "sure", "yes", "alright" (these need confirmation)
+   - NOT acceptance: "ok but...", "fine, how about...", any message that also contains a new price offer
+   - If the message contains BOTH an acceptance phrase AND a different price (e.g. "fine I will take it for 2500"), set accepts_deal=false and extract the price instead.
+
 Respond with ONLY this JSON:
 {{
   "has_price": <true or false>,
@@ -544,5 +553,6 @@ Respond with ONLY this JSON:
   "extracted_total_price": <float or null — buyer's total price for all units, if they specified a total>,
   "has_quantity_change": <true or false>,
   "extracted_quantity": <int or null — the new quantity if has_quantity_change is true>,
-  "reply": "<string — your conversational reply if has_price is false and has_quantity_change is false, or null>"
+  "accepts_deal": <true or false — buyer is accepting/agreeing to our current offer without naming a different price>,
+  "reply": "<string — your conversational reply if has_price is false and has_quantity_change is false and accepts_deal is false, or null>"
 }}"""

@@ -46,9 +46,45 @@ from ..infrastructure.llm import prompt_templates as llm_prompts
 from .session import SessionManager, NegotiationSession, get_session_manager
 
 import json
+import re
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+# ── Strong vs. soft accept patterns (for confirmation flow) ──────
+STRONG_ACCEPT_RE = re.compile(
+    r'^\s*(?:'
+    r'ok\s*deal|deal|i\s*accept|agreed|let\'?s?\s*do\s*it|'
+    r'i\'?ll?\s*take\s*it|we\s*have\s*a\s*deal|'
+    r'done\s*deal|sold|yes\s*deal|accepted|alright\s*deal|'
+    r'i\s*agree|ok\s*i?\s*agree|wrap\s*it\s*up|'
+    r'let\'?s?\s*close|i\'?ll?\s*go\s*with\s*that|'
+    r'that\'?s?\s*a\s*deal|it\'?s?\s*a\s*deal|'
+    r'i\s*accept\s*your\s*offer|done|let\'?s?\s*finalize'
+    r')\s*[.!]?\s*$',
+    re.IGNORECASE,
+)
+
+SOFT_ACCEPT_RE = re.compile(
+    r'^\s*(?:'
+    r'ok|okay|fine|sure|alright|yes|yep|yeah|yea|hmm|'
+    r'sounds?\s*good|that\s*works|works\s*for\s*me|'
+    r'fair\s*enough|good|great|perfect|right|cool|nice'
+    r')\s*[.!]?\s*$',
+    re.IGNORECASE,
+)
+
+_CONFIRM_MARKER = "Say 'deal' or 'I accept' to close."
+
+
+def _is_pending_confirmation(state) -> bool:
+    """Check if the last seller message was a confirmation prompt."""
+    if not state or not state.chat_history:
+        return False
+    for msg in reversed(state.chat_history):
+        if msg.get("role") == "Seller":
+            return _CONFIRM_MARKER in msg.get("text", "")
+    return False
 
 
 class NegotiationEngine:
@@ -284,7 +320,69 @@ class NegotiationEngine:
             try:
                 extracted = self._understand_chat(chat_message.message, session, current_offer, history_str)
                 if extracted is not None:
-                    has_price, unit_price, total_price, reply, has_qty_change, new_qty = extracted
+                    has_price, unit_price, total_price, reply, has_qty_change, new_qty, accepts_deal = extracted
+
+                    # ── Buyer accepts the current counter ─────────
+                    if accepts_deal and not has_price:
+                        msg_stripped = chat_message.message.strip()
+                        is_strong = bool(STRONG_ACCEPT_RE.match(msg_stripped))
+                        is_soft = bool(SOFT_ACCEPT_RE.match(msg_stripped))
+                        pending = _is_pending_confirmation(state)
+
+                        if is_strong or pending or (not is_soft):
+                            # Strong accept, pending-confirm reply, or LLM-
+                            # detected acceptance that isn't a soft phrase
+                            # → route through engine for direct closure.
+                            last_counter = float(current_offer)
+                            eng = state.engine_state
+                            if eng and eng.counter_history:
+                                last_counter = eng.counter_history[-1]
+
+                            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+
+                            buyer_offer = BuyerOffer(
+                                offered_price=Decimal(str(last_counter)),
+                                message=chat_message.message,
+                                offered_quantity=None,
+                            )
+                            turn_response = self.process_turn(session_id, buyer_offer)
+
+                            state.chat_history.append({"role": "Seller", "text": turn_response.message})
+
+                            return ChatResponse(
+                                session_id=session_id,
+                                message=turn_response.message,
+                                has_price_offer=True,
+                                extracted_price=Decimal(str(last_counter)),
+                                round_number=turn_response.round_number,
+                                status=turn_response.status,
+                                pricing=turn_response.pricing,
+                                can_continue=turn_response.can_continue,
+                                rounds_remaining=turn_response.rounds_remaining,
+                            )
+                        else:
+                            # Soft accept ("ok", "fine", "sure", …)
+                            # → ask buyer to explicitly confirm.
+                            last_counter = float(current_offer)
+                            eng = state.engine_state
+                            if eng and eng.counter_history:
+                                last_counter = eng.counter_history[-1]
+                            qty = session.inventory.requested_quantity
+                            total = round(last_counter * qty, 2)
+
+                            confirm_msg = (
+                                f"Just to confirm \u2014 you'd like to finalize at "
+                                f"${last_counter:,.2f} per unit for {qty} unit(s), "
+                                f"totaling ${total:,.2f}? "
+                                f"{_CONFIRM_MARKER}"
+                            )
+                            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                            state.chat_history.append({"role": "Seller", "text": confirm_msg})
+                            return ChatResponse(
+                                session_id=session_id,
+                                message=confirm_msg,
+                                has_price_offer=False,
+                            )
 
                     # Handle quantity change (with or without a price offer)
                     if has_qty_change and new_qty is not None and new_qty > 0:
@@ -381,7 +479,59 @@ class NegotiationEngine:
                 logger.error("chat_understanding_error", error=str(e))
 
         # Fallback: try simple regex extraction
-        import re
+
+        # ── Fallback acceptance detection (strong/soft split) ─────
+        msg_stripped = chat_message.message.strip()
+        is_strong_fb = bool(STRONG_ACCEPT_RE.match(msg_stripped))
+        is_soft_fb = bool(SOFT_ACCEPT_RE.match(msg_stripped))
+        pending_fb = _is_pending_confirmation(state)
+
+        if is_strong_fb or (is_soft_fb and pending_fb):
+            # Direct acceptance (strong phrase, or soft after confirmation)
+            last_counter = float(current_offer)
+            eng = state.engine_state
+            if eng and eng.counter_history:
+                last_counter = eng.counter_history[-1]
+
+            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+            buyer_offer = BuyerOffer(
+                offered_price=Decimal(str(last_counter)),
+                message=chat_message.message,
+            )
+            turn_response = self.process_turn(session_id, buyer_offer)
+            state.chat_history.append({"role": "Seller", "text": turn_response.message})
+            return ChatResponse(
+                session_id=session_id,
+                message=turn_response.message,
+                has_price_offer=True,
+                extracted_price=Decimal(str(last_counter)),
+                round_number=turn_response.round_number,
+                status=turn_response.status,
+                pricing=turn_response.pricing,
+                can_continue=turn_response.can_continue,
+                rounds_remaining=turn_response.rounds_remaining,
+            )
+        elif is_soft_fb and not pending_fb:
+            # Soft accept without prior confirmation → ask buyer to confirm
+            last_counter = float(current_offer)
+            eng = state.engine_state
+            if eng and eng.counter_history:
+                last_counter = eng.counter_history[-1]
+            qty = session.inventory.requested_quantity
+            total = round(last_counter * qty, 2)
+            confirm_msg = (
+                f"Just to confirm \u2014 you'd like to finalize at "
+                f"${last_counter:,.2f} per unit for {qty} unit(s), "
+                f"totaling ${total:,.2f}? "
+                f"{_CONFIRM_MARKER}"
+            )
+            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+            state.chat_history.append({"role": "Seller", "text": confirm_msg})
+            return ChatResponse(
+                session_id=session_id,
+                message=confirm_msg,
+                has_price_offer=False,
+            )
         match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
         if match:
             price = float(match.group(1))
@@ -565,6 +715,13 @@ class NegotiationEngine:
 
             data = json.loads(content)
             has_price = data.get("has_price", False)
+            accepts_deal = bool(data.get("accepts_deal", False))
+
+            # Regex fallback: if LLM missed acceptance but message matches
+            if not accepts_deal and not has_price:
+                _msg = buyer_message.strip()
+                if STRONG_ACCEPT_RE.match(_msg) or SOFT_ACCEPT_RE.match(_msg):
+                    accepts_deal = True
 
             # Parse unit / total price (new schema)
             unit_price = data.get("extracted_unit_price")
@@ -592,7 +749,7 @@ class NegotiationEngine:
                     extracted_qty = None
                     has_qty_change = False
 
-            return (has_price, unit_price, total_price, reply, has_qty_change, extracted_qty)
+            return (has_price, unit_price, total_price, reply, has_qty_change, extracted_qty, accepts_deal)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("chat_understanding_parse_error", error=str(e))
             return None

@@ -1177,19 +1177,30 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         and state.good_faith_after_final >= redemption_threshold
     )
     # Path B: cumulative climb from freeze-point low
+    #   Requires at least 3 consecutive upward moves to prevent a
+    #   single big jump from bypassing the per-move path.
+    MIN_CUMULATIVE_MOVES = 3
     cumulative_redeemed = False
     if (state.final_offer_issued
             and state._freeze_low_offer > 0
             and state._freeze_offer_idx >= 0
             and len(state.offer_history) > state._freeze_offer_idx + 1):
         offers_since = state.offer_history[state._freeze_offer_idx:]
+        num_moves = len(offers_since) - 1  # moves, not offers
         # Every offer since freeze must be non-decreasing (no retrograde)
         monotonic = all(
             b >= a - 0.001
             for a, b in zip(offers_since, offers_since[1:])
         )
-        cumulative_pct = (state.offer_history[-1] / state._freeze_low_offer) - 1
-        if monotonic and cumulative_pct >= TUNING["redemption_cumulative_pct"]:
+        # Use base_price as denominator so 6% means 6% of the
+        # actual product value, not 6% of a manipulated low anchor.
+        cumulative_pct = (
+            (state.offer_history[-1] - state._freeze_low_offer)
+            / state.base_price
+        )
+        if (monotonic
+                and num_moves >= MIN_CUMULATIVE_MOVES
+                and cumulative_pct >= TUNING["redemption_cumulative_pct"]):
             cumulative_redeemed = True
 
     if per_move_redeemed or cumulative_redeemed:
@@ -1232,6 +1243,27 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     if manip_tag in (ReasoningTag.BUNDLE_DEFLECT, ReasoningTag.SOCIAL_PROOF_RESIST):
         last = state.counter_history[-1] if state.counter_history else state.bulk_target_price
         return _build_result(state, "counter", last, manip_tag)
+
+    # ── STEP 7.5: Frozen-counter shortcut ─────────────────────
+    #   When a final offer is active (freeze), skip concession
+    #   computation entirely.  Just hold the counter.  The buyer
+    #   must redeem (STEP 5.5) before normal negotiation resumes.
+    if state.final_offer_issued:
+        last = state.counter_history[-1] if state.counter_history else state.dynamic_floor
+        # Accept if buyer meets or exceeds the frozen counter
+        if u_price >= last:
+            state.counter_history.append(last)
+            return _accept_result(state, u_price, ReasoningTag.UTILITY_ACCEPT)
+        # Last round: reject
+        if state.current_round >= state.max_rounds:
+            state.counter_history.append(last)
+            return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
+        # Hold counter — no concession, no ZOPA, no acceptance
+        state.counter_history.append(last)
+        return _build_result(
+            state, "final_offer", last,
+            bbi_tag or ReasoningTag.RETROGRADE_FINAL,
+        )
 
     # ── STEP 8: ZOPA check ────────────────────────────────────
     buyer_ceiling = _estimate_buyer_ceiling(state)
@@ -1288,6 +1320,19 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
                 state.total_concession_budget,
             )
             counter_price = floor_price
+
+    # ── STEP 10.2: Hard ratchet — counter can NEVER exceed lowest historical ──
+    #   Extra safety net: even if concession math somehow produces a
+    #   counter above a previously issued counter, clamp it down.
+    if state.counter_history:
+        historical_min = min(state.counter_history)
+        if counter_price > historical_min:
+            leaked = (counter_price - historical_min) * state.quantity
+            state.remaining_concession_budget = min(
+                state.remaining_concession_budget + leaked,
+                state.total_concession_budget,
+            )
+            counter_price = historical_min
 
     state.counter_history.append(counter_price)
 
