@@ -87,6 +87,19 @@ def _is_pending_confirmation(state) -> bool:
     return False
 
 
+_FULL_PRICE_CONFIRM_MARKER = "You're offering the full asking price."
+
+
+def _is_pending_full_price_confirmation(state) -> bool:
+    """Check if the last seller message was a full-price confirmation prompt."""
+    if not state or not state.chat_history:
+        return False
+    for msg in reversed(state.chat_history):
+        if msg.get("role") == "Seller":
+            return _FULL_PRICE_CONFIRM_MARKER in msg.get("text", "")
+    return False
+
+
 class NegotiationEngine:
     """
     Main orchestration layer for the negotiation system.
@@ -342,10 +355,14 @@ class NegotiationEngine:
                             # Strong accept, pending-confirm reply, or LLM-
                             # detected acceptance that isn't a soft phrase
                             # → route through engine for direct closure.
-                            last_counter = float(current_offer)
-                            eng = state.engine_state
-                            if eng and eng.counter_history:
-                                last_counter = eng.counter_history[-1]
+                            if _is_pending_full_price_confirmation(state):
+                                # Buyer confirmed they want full price
+                                last_counter = float(session.product.base_price)
+                            else:
+                                last_counter = float(current_offer)
+                                eng = state.engine_state
+                                if eng and eng.counter_history:
+                                    last_counter = eng.counter_history[-1]
 
                             state.chat_history.append({"role": "Buyer", "text": chat_message.message})
 
@@ -455,8 +472,31 @@ class NegotiationEngine:
                             #   If extracted price > base, it's almost certainly
                             #   a mistype or LLM parsing error. Clamp to base.
                             base = float(session.product.base_price)
-                            if effective_price > base:
+                            was_clamped = effective_price > base
+                            if was_clamped:
                                 effective_price = base
+
+                            # ── Full-price confirmation ────────────────
+                            #   If the raw offer exceeded base (was clamped),
+                            #   the buyer likely mistyped.  Ask them to
+                            #   confirm before locking in full price.
+                            if was_clamped:
+                                qty = session.inventory.requested_quantity
+                                total = round(base * qty, 2)
+                                confirm_msg = (
+                                    f"{_FULL_PRICE_CONFIRM_MARKER} "
+                                    f"That's ${base:,.2f} per unit for {qty} unit(s), "
+                                    f"totaling ${total:,.2f}. "
+                                    f"Would you like to proceed at full price, or make a different offer? "
+                                    f"{_CONFIRM_MARKER}"
+                                )
+                                state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                                state.chat_history.append({"role": "Seller", "text": confirm_msg})
+                                return ChatResponse(
+                                    session_id=session_id,
+                                    message=confirm_msg,
+                                    has_price_offer=False,
+                                )
 
                             # Store buyer message in history
                             state.chat_history.append({"role": "Buyer", "text": chat_message.message})
@@ -536,10 +576,14 @@ class NegotiationEngine:
 
         if is_strong_fb or (is_soft_fb and pending_fb):
             # Direct acceptance (strong phrase, or soft after confirmation)
-            last_counter = float(current_offer)
-            eng = state.engine_state
-            if eng and eng.counter_history:
-                last_counter = eng.counter_history[-1]
+            if _is_pending_full_price_confirmation(state):
+                # Buyer confirmed they want full price
+                last_counter = float(session.product.base_price)
+            else:
+                last_counter = float(current_offer)
+                eng = state.engine_state
+                if eng and eng.counter_history:
+                    last_counter = eng.counter_history[-1]
 
             state.chat_history.append({"role": "Buyer", "text": chat_message.message})
             buyer_offer = BuyerOffer(
@@ -584,6 +628,25 @@ class NegotiationEngine:
         if match:
             price = float(match.group(1))
             if price > 0:
+                # ── Full-price guard (fallback path) ───────────
+                base = float(session.product.base_price)
+                if price > base:
+                    qty = session.inventory.requested_quantity
+                    total = round(base * qty, 2)
+                    confirm_msg = (
+                        f"{_FULL_PRICE_CONFIRM_MARKER} "
+                        f"That's ${base:,.2f} per unit for {qty} unit(s), "
+                        f"totaling ${total:,.2f}. "
+                        f"Would you like to proceed at full price, or make a different offer? "
+                        f"{_CONFIRM_MARKER}"
+                    )
+                    state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                    state.chat_history.append({"role": "Seller", "text": confirm_msg})
+                    return ChatResponse(
+                        session_id=session_id,
+                        message=confirm_msg,
+                        has_price_offer=False,
+                    )
                 buyer_offer = BuyerOffer(
                     offered_price=Decimal(str(price)),
                     message=chat_message.message,
