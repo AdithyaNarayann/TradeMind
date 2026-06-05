@@ -103,15 +103,18 @@ class PricingStrategyAgent:
         offered = buyer_offer.offered_price
         quantity = buyer_offer.offered_quantity or inventory.requested_quantity
 
-        # ─── DYNAMIC ACCEPTANCE: proximity to our current counter ────────
-        # Rounds 1-4: accept only if buyer is within $3 of our counter
-        # Rounds 5+:  threshold widens progressively (buyer wore us down)
+        # ─── DYNAMIC ACCEPTANCE: percentage-based proximity ────────────
+        # Uses a % of our current offer instead of flat $, so it works
+        # correctly for both $20 and $2000 products.
+        # Rounds 1-4: accept within 3% of our counter
+        # Rounds 5+:  widens by 5% per round (buyer wore us down, but capped at 30%)
         round_num = state.current_round
         if round_num <= 4:
-            acceptance_threshold = Decimal("3")
+            acceptance_pct = Decimal("0.03")  # 3%
         else:
-            # Widens by $5 per round after round 4
-            acceptance_threshold = Decimal("3") + Decimal(str(round_num - 4)) * Decimal("5")
+            pct = Decimal("0.03") + Decimal(str(round_num - 4)) * Decimal("0.05")
+            acceptance_pct = min(pct, Decimal("0.30"))  # Cap at 30%
+        acceptance_threshold = (state.current_offer * acceptance_pct).quantize(Decimal("0.01"))
 
         # Accept if buyer's offer is close enough to our counter AND above cost
         if offered >= (state.current_offer - acceptance_threshold) and offered >= product.cost_price:
@@ -190,8 +193,9 @@ class PricingStrategyAgent:
             data = json.loads(self._clean_json(result.content))
             offer = Decimal(str(data["initial_offer"]))
 
-            # Guardrail: always start at base price
-            offer = product.base_price
+            # Guardrail: never start below min_acceptable or above base_price
+            offer = min(offer, product.base_price)
+            offer = max(offer, product.min_acceptable_price)
 
             # Quantity discount (only for multi-unit orders)
             if inventory.requested_quantity > 1:
@@ -262,11 +266,15 @@ class PricingStrategyAgent:
                 decision = OfferDecision.COUNTER   # default to counter
 
             # NOTE: Acceptance is handled by proximity check in evaluate_offer().
-            # If AI says "accept" here, override to COUNTER — only the
-            # proximity threshold decides acceptance.
+            # If AI says "accept" here, allow it ONLY if offer meets hard constraints
+            # (above cost_price and min_acceptable_price). Otherwise override to COUNTER.
             if decision_str == "accept":
-                decision = OfferDecision.COUNTER
-                counter_price_raw = counter_price_raw or str(state.current_offer)
+                if offered >= product.min_acceptable_price and offered >= product.cost_price:
+                    decision = OfferDecision.ACCEPT
+                    counter_price_raw = None
+                else:
+                    decision = OfferDecision.COUNTER
+                    counter_price_raw = counter_price_raw or str(state.current_offer)
 
             # ── Guardrails for COUNTER ────────────────────────────────
             counter_price = None
@@ -467,7 +475,12 @@ class PricingStrategyAgent:
         return margin_pct, profit_unit, total_profit
 
     def _round_price(self, price: Decimal) -> Decimal:
-        return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        """Round price to 2 decimal places. Handles edge cases."""
+        try:
+            return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, OverflowError):
+            logger.warning("price_rounding_error", price=str(price))
+            return Decimal("0.00")
 
     def _clean_json(self, content: str) -> str:
         """Strip markdown fences from LLM JSON response."""

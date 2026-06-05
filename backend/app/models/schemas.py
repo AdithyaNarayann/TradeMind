@@ -7,8 +7,9 @@ These schemas enforce seller constraints are never violated.
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
+import html as _html
 
 from .enums import (
     NegotiationMode,
@@ -28,11 +29,11 @@ from .enums import (
 class ProductData(BaseModel):
     """Product and cost information - immutable during negotiation."""
     
-    product_id: str = Field(..., min_length=1, description="Unique product identifier")
-    product_name: str = Field(..., min_length=1, description="Product display name")
-    base_price: Decimal = Field(..., gt=0, description="Listed/base price per unit")
-    cost_price: Decimal = Field(..., gt=0, description="Cost per unit to seller")
-    min_acceptable_price: Decimal = Field(..., gt=0, description="Absolute floor price")
+    product_id: str = Field(..., min_length=1, max_length=100, description="Unique product identifier")
+    product_name: str = Field(..., min_length=1, max_length=200, description="Product display name")
+    base_price: Decimal = Field(..., gt=0, le=Decimal("99999999.99"), description="Listed/base price per unit")
+    cost_price: Decimal = Field(..., gt=0, le=Decimal("99999999.99"), description="Cost per unit to seller")
+    min_acceptable_price: Decimal = Field(..., gt=0, le=Decimal("99999999.99"), description="Absolute floor price")
     max_loss_percentage: Decimal = Field(
         default=Decimal("0"),
         ge=0,
@@ -47,6 +48,8 @@ class ProductData(BaseModel):
             raise ValueError("min_acceptable_price cannot exceed base_price")
         if self.cost_price > self.base_price:
             raise ValueError("cost_price cannot exceed base_price (negative margin)")
+        if self.min_acceptable_price < self.cost_price:
+            raise ValueError("min_acceptable_price cannot be below cost_price (would allow selling at a loss)")
         return self
 
 
@@ -112,7 +115,7 @@ class CreateSessionRequest(BaseModel):
 class BuyerOffer(BaseModel):
     """A buyer's offer in the negotiation."""
     
-    offered_price: Decimal = Field(..., gt=0, description="Buyer's offered price per unit")
+    offered_price: Decimal = Field(..., gt=0, le=Decimal("99999999.99"), description="Buyer's offered price per unit")
     offered_quantity: Optional[int] = Field(
         default=None,
         gt=0,
@@ -141,7 +144,7 @@ class ChatResponse(BaseModel):
     pricing: Optional["PricingDecision"] = None
     can_continue: Optional[bool] = None
     rounds_remaining: Optional[int] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class NegotiationTurnRequest(BaseModel):
@@ -195,7 +198,7 @@ class NegotiationTurnResponse(BaseModel):
     rounds_remaining: int
     
     # Audit trail
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SessionSummary(BaseModel):

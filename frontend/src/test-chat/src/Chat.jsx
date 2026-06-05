@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle, Package, Search, ChevronDown, Database, Edit3 } from 'lucide-react';
+import { Send, Loader2, AlertCircle, TrendingUp, RotateCcw, Plus, Minus, Zap, Shield, Phone, X, CheckCircle, Package, Search, ChevronDown, Database, Edit3, PhoneCall } from 'lucide-react';
 import { createSession, sendChat, healthCheck, dbStartSession, dbSaveMessage, dbCloseSession, dbSaveCallbackRequest } from './api';
 import { getProducts } from '../../lib/productStore';
+import { VoiceCall } from '../../call-feature';
 import './Chat.css';
 
 export default function Chat() {
@@ -42,6 +43,9 @@ export default function Chat() {
     const [callbackSaving, setCallbackSaving] = useState(false);
     const [finalNegotiationStatus, setFinalNegotiationStatus] = useState(null);
     const [finalDealPrice, setFinalDealPrice] = useState(null);
+
+    // Voice call state
+    const [showVoiceCall, setShowVoiceCall] = useState(false);
 
     const messagesEndRef = useRef(null);
 
@@ -147,26 +151,31 @@ export default function Chat() {
                 setShowSetup(false);
 
                 // ── Persist to MySQL ──
-                const dbSess = await dbStartSession({
-                    product_name: productName,
-                    mode: config.mode,
-                    base_price: config.basePrice,
-                    cost_price: config.costPrice,
-                    min_price: minAcceptable,
-                    max_rounds: config.maxRounds,
-                });
-                if (dbSess?.id) {
-                    setDbSessionId(dbSess.id);
-                    // Save the initial bot greeting as round 0
-                    await dbSaveMessage(dbSess.id, {
-                        round_number: 0,
-                        user_message: null,
-                        bot_reply: sessionData.message,
-                        offered_price: null,
-                        counter_price: sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : null,
-                        decision: 'chat',
+                try {
+                    const dbSess = await dbStartSession({
+                        product_name: productName,
+                        mode: config.mode,
+                        base_price: config.basePrice,
+                        cost_price: config.costPrice,
+                        min_price: minAcceptable,
+                        max_rounds: config.maxRounds,
                     });
-                    setLastSellerOffer(sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : config.basePrice);
+                    if (dbSess?.id) {
+                        setDbSessionId(dbSess.id);
+                        // Save the initial bot greeting as round 0
+                        await dbSaveMessage(dbSess.id, {
+                            round_number: 0,
+                            user_message: null,
+                            bot_reply: sessionData.message,
+                            offered_price: null,
+                            counter_price: sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : null,
+                            decision: 'chat',
+                        });
+                        setLastSellerOffer(sessionData.initial_offer ? parseFloat(sessionData.initial_offer) : config.basePrice);
+                    }
+                } catch (dbErr) {
+                    console.error('[DB] Failed to persist session start:', dbErr);
+                    // Non-blocking: negotiation can still proceed without DB persistence
                 }
                 setMessages([{
                     id: Date.now(),
@@ -367,18 +376,24 @@ export default function Chat() {
                 if (response.can_continue === false) {
                     setNegotiationEnded(true);
 
-                    // ── Close session in MySQL ──
+                    // ── Close session in MySQL (with error handling + retry) ──
                     const finalStatus = response.status || roundDecision;
                     const dealWasMade = roundDecision === 'accept';
-                    await dbCloseSession(dbSessionId, {
-                        status: finalStatus,
-                        final_price: dealWasMade ? (acceptedPrice || offeredPrice) : null,
-                        final_decision: finalStatus,
-                        deal_closed: dealWasMade,
-                        buyer_last_offer: offeredPrice || lastBuyerOffer,
-                        seller_last_offer: counterPrice || acceptedPrice || lastSellerOffer,
-                        rounds_used: response.round_number || 0,
-                    });
+                    let dbSaveFailed = false;
+                    try {
+                        await dbCloseSession(dbSessionId, {
+                            status: finalStatus,
+                            final_price: dealWasMade ? (acceptedPrice || offeredPrice) : null,
+                            final_decision: finalStatus,
+                            deal_closed: dealWasMade,
+                            buyer_last_offer: offeredPrice || lastBuyerOffer,
+                            seller_last_offer: counterPrice || acceptedPrice || lastSellerOffer,
+                            rounds_used: response.round_number || 0,
+                        });
+                    } catch (closeErr) {
+                        console.error('[DB] Failed to save session close:', closeErr);
+                        dbSaveFailed = true;
+                    }
 
                     // ── Trigger callback scheduling flow ──
                     setFinalNegotiationStatus(finalStatus);
@@ -387,9 +402,12 @@ export default function Chat() {
 
                     // Add a professional message asking about scheduling a call
                     setTimeout(() => {
+                        const dbWarning = dbSaveFailed
+                            ? "\n\n⚠️ Note: We had trouble saving this session to our records. Don't worry — your negotiation result is still valid. Our team will follow up if needed."
+                            : "";
                         setMessages(prev => [...prev, {
                             id: Date.now() + 100,
-                            text: "Thank you for taking the time to negotiate with us — we truly value your interest.\n\nWould you like us to schedule a professional call to discuss this further? Our team would be happy to connect with you at your convenience.",
+                            text: "Thank you for taking the time to negotiate with us — we truly value your interest.\n\nWould you like us to schedule a professional call to discuss this further? Our team would be happy to connect with you at your convenience." + dbWarning,
                             sender: 'bot',
                             timestamp: new Date(),
                             meta: { isCallbackPrompt: true }
@@ -401,7 +419,14 @@ export default function Chat() {
             }
         } catch (err) {
             console.error('Send message error:', err);
-            setError("Failed to send: " + err.message);
+            // Edge case: handle auth expiry mid-negotiation
+            if (err.message?.includes('401') || err.message?.includes('Authentication expired') || err.message?.includes('Token expired')) {
+                setError("Your session has expired. Please log in again to continue.");
+            } else if (err.message?.includes('timed out')) {
+                setError("The AI took too long to respond. Please try again.");
+            } else {
+                setError("Failed to send: " + err.message);
+            }
         } finally {
             setLoading(false);
         }
@@ -727,6 +752,17 @@ export default function Chat() {
                         <span className="bg-neo-teal px-3 py-1 border-2 border-neo-cream font-bold text-xs">
                             Cost ${config.costPrice}
                         </span>
+                        {/* Voice Call Button in Header */}
+                        {sessionId && !negotiationEnded && (
+                            <button
+                                onClick={() => setShowVoiceCall(true)}
+                                className="flex items-center gap-1.5 bg-neo-orange px-3 py-1 border-2 border-neo-cream font-bold text-xs text-neo-navy hover:bg-neo-orange/80 transition-all"
+                                title="Start voice negotiation"
+                            >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                                CALL
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>
@@ -913,6 +949,17 @@ export default function Chat() {
                 </div>
             )}
 
+            {/* Voice Call Overlay */}
+            {showVoiceCall && sessionId && (
+                <VoiceCall
+                    sessionId={sessionId}
+                    config={config}
+                    selectedProduct={selectedProduct}
+                    onClose={() => setShowVoiceCall(false)}
+                    onMessage={(msg) => setMessages(prev => [...prev, msg])}
+                />
+            )}
+
             {!negotiationEnded && (
                 <footer className="bg-neo-cream border-t-4 border-neo-navy p-4">
                     <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
@@ -925,6 +972,16 @@ export default function Chat() {
                                 className="flex-1 px-4 py-3 border-3 border-neo-navy bg-white text-neo-navy placeholder-neo-navy/50 focus:outline-none font-body"
                                 disabled={loading || !sessionId}
                             />
+                            {/* Voice Call Button in Footer */}
+                            <button
+                                type="button"
+                                onClick={() => setShowVoiceCall(true)}
+                                disabled={loading || !sessionId}
+                                className={"neo-button px-4 py-3 font-bold flex items-center gap-2 " + (loading || !sessionId ? 'bg-neo-navy/30 opacity-50 cursor-not-allowed' : 'bg-neo-teal text-neo-cream hover:bg-neo-teal/90 border-3 border-neo-navy')}
+                                title="Start voice call"
+                            >
+                                <PhoneCall className="w-5 h-5" />
+                            </button>
                             <button
                                 type="submit"
                                 disabled={loading || !sessionId || !inputValue.trim()}

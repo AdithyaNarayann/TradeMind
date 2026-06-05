@@ -1,6 +1,9 @@
 const API_BASE = 'http://127.0.0.1:8000/api/v1/negotiate';
 const CHAT_DB_BASE = 'http://127.0.0.1:8000/api/v1/chat-sessions';
 
+/** Default fetch timeout (15 seconds) */
+const FETCH_TIMEOUT_MS = 15000;
+
 function _token() {
     return localStorage.getItem('trademind_token');
 }
@@ -14,60 +17,99 @@ function _authHeaders() {
 
 // ── Chat DB persistence helpers ──────────────────────────────────
 
+const DB_RETRY_ATTEMPTS = 3;
+const DB_RETRY_DELAY_MS = 1000;
+
+/** Internal retry wrapper for critical DB operations */
+async function _retryFetch(url, options, attempts = DB_RETRY_ATTEMPTS) {
+    let lastError = null;
+    for (let i = 0; i < attempts; i++) {
+        try {
+            const res = await fetch(url, options);
+            if (res.status === 401) {
+                // Token expired — don't retry, surface immediately
+                const err = new Error('Authentication expired. Please log in again.');
+                err.code = 'AUTH_EXPIRED';
+                throw err;
+            }
+            if (!res.ok) {
+                const errText = await res.text().catch(() => `HTTP ${res.status}`);
+                throw new Error(`HTTP ${res.status}: ${errText}`);
+            }
+            return await res.json();
+        } catch (e) {
+            lastError = e;
+            if (e.code === 'AUTH_EXPIRED') throw e; // Don't retry auth failures
+            if (i < attempts - 1) {
+                console.warn(`[DB] Retry ${i + 1}/${attempts} for ${url}:`, e.message);
+                await new Promise(r => setTimeout(r, DB_RETRY_DELAY_MS * (i + 1)));
+            }
+        }
+    }
+    throw lastError;
+}
+
 /** Create a chat session in MySQL (returns { id, status }) */
 export async function dbStartSession({ product_name, mode, base_price, cost_price, min_price, max_rounds }) {
-    if (!_token()) return null;
+    if (!_token()) {
+        console.warn('[DB] dbStartSession skipped — no auth token');
+        return null;
+    }
     try {
-        const res = await fetch(CHAT_DB_BASE, {
+        return await _retryFetch(CHAT_DB_BASE, {
             method: 'POST',
             headers: _authHeaders(),
             body: JSON.stringify({ product_name, mode, base_price, cost_price, min_price, max_rounds }),
         });
-        if (!res.ok) return null;
-        return await res.json();
-    } catch { return null; }
+    } catch (e) {
+        console.error('[DB] dbStartSession FAILED after retries:', e.message);
+        throw e; // Let caller handle — session creation failure is critical
+    }
 }
 
 /** Save a chat round to MySQL */
 export async function dbSaveMessage(dbSessionId, { round_number, user_message, bot_reply, offered_price, counter_price, decision }) {
     if (!_token() || !dbSessionId) return null;
     try {
-        const res = await fetch(`${CHAT_DB_BASE}/${dbSessionId}/messages`, {
+        return await _retryFetch(`${CHAT_DB_BASE}/${dbSessionId}/messages`, {
             method: 'POST',
             headers: _authHeaders(),
             body: JSON.stringify({ round_number, user_message, bot_reply, offered_price, counter_price, decision }),
         });
-        if (!res.ok) return null;
-        return await res.json();
-    } catch { return null; }
+    } catch (e) {
+        console.error('[DB] dbSaveMessage failed:', e.message);
+        return null; // Non-critical: message can be lost without breaking flow
+    }
 }
 
-/** Close a chat session in MySQL with final outcome */
+/** Close a chat session in MySQL with final outcome — CRITICAL, uses retries */
 export async function dbCloseSession(dbSessionId, { status, final_price, final_decision, deal_closed, buyer_last_offer, seller_last_offer, rounds_used }) {
-    if (!_token() || !dbSessionId) return null;
-    try {
-        const res = await fetch(`${CHAT_DB_BASE}/${dbSessionId}/close`, {
-            method: 'PUT',
-            headers: _authHeaders(),
-            body: JSON.stringify({ status, final_price, final_decision, deal_closed, buyer_last_offer, seller_last_offer, rounds_used }),
-        });
-        if (!res.ok) return null;
-        return await res.json();
-    } catch { return null; }
+    if (!_token() || !dbSessionId) {
+        const err = new Error(`Cannot close session: ${!_token() ? 'no auth token' : 'no session ID'}`);
+        err.code = 'DB_PRECONDITION';
+        throw err;
+    }
+    // This is critical — uses retry. Throws on failure so caller can warn user.
+    return await _retryFetch(`${CHAT_DB_BASE}/${dbSessionId}/close`, {
+        method: 'PUT',
+        headers: _authHeaders(),
+        body: JSON.stringify({ status, final_price, final_decision, deal_closed, buyer_last_offer, seller_last_offer, rounds_used }),
+    });
 }
 
 /** Save a callback request (phone number for scheduling a call) */
 export async function dbSaveCallbackRequest({ session_id, phone_number, product_name, negotiation_status, final_price }) {
     if (!_token()) return null;
     try {
-        const res = await fetch(`${CHAT_DB_BASE}/callback-request`, {
+        return await _retryFetch(`${CHAT_DB_BASE}/callback-request`, {
             method: 'POST',
             headers: _authHeaders(),
             body: JSON.stringify({ session_id, phone_number, product_name, negotiation_status, final_price }),
         });
-        if (!res.ok) return null;
-        return await res.json();
-    } catch { return null; }
+    } catch (e) {
+        console.error('[DB] dbSaveCallbackRequest failed:', e.message);
+        return null;
+    }
 }
 
 /** Get all chat sessions for current user */
@@ -116,14 +158,15 @@ const DEFAULT_SESSION_CONFIG = {
 
 // Create a new negotiation session
 export async function createSession(config = null) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
         const body = config || DEFAULT_SESSION_CONFIG;
         const response = await fetch(`${API_BASE}/sessions`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body)
+            headers: _authHeaders(),
+            body: JSON.stringify(body),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -133,8 +176,11 @@ export async function createSession(config = null) {
 
         return await response.json();
     } catch (error) {
+        if (error.name === 'AbortError') throw new Error('Request timed out. Please try again.');
         console.error('Failed to create session:', error);
         throw error;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -149,9 +195,7 @@ export async function submitOffer(sessionId, offeredPrice, message = null, offer
 
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/turns`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: _authHeaders(),
             body: JSON.stringify(body)
         });
 
@@ -169,15 +213,16 @@ export async function submitOffer(sessionId, offeredPrice, message = null, offer
 
 // Send a free-text chat message (AI understands intent)
 export async function sendChat(sessionId, message) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS * 2); // Double timeout for LLM
     try {
         const body = { message };
 
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body)
+            headers: _authHeaders(),
+            body: JSON.stringify(body),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -187,8 +232,11 @@ export async function sendChat(sessionId, message) {
 
         return await response.json();
     } catch (error) {
+        if (error.name === 'AbortError') throw new Error('AI response timed out. Please try again.');
         console.error('Failed to send chat:', error);
         throw error;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -197,9 +245,7 @@ export async function getSession(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            headers: _authHeaders(),
         });
 
         if (!response.ok) {
@@ -218,6 +264,7 @@ export async function getAnalytics(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/analytics`, {
             method: 'GET',
+            headers: _authHeaders(),
         });
 
         if (!response.ok) {
