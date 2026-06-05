@@ -76,6 +76,22 @@ SOFT_ACCEPT_RE = re.compile(
 
 _CONFIRM_MARKER = "Say 'deal' or 'I accept' to close."
 
+_QUANTITY_WORD_RE = re.compile(
+    r"\b(\d{1,6})\s*(?:units?|pcs?|pieces?|items?)\b",
+    re.IGNORECASE,
+)
+
+_QUANTITY_INTENT_RE = re.compile(
+    r"\b(?:quantity|qty)\s*(?:is|=|:)?\s*(\d{1,6})\b",
+    re.IGNORECASE,
+)
+
+_EXPLICIT_PRICE_RE = re.compile(
+    r"(?:[$]\s*(\d+(?:\.\d{1,2})?)|"
+    r"\b(?:offer|offering|pay|price|budget|bid)\s*(?:is|of|=|:)?\s*[$]?\s*(\d+(?:\.\d{1,2})?))",
+    re.IGNORECASE,
+)
+
 
 def _is_pending_confirmation(state) -> bool:
     """Check if the last seller message was a confirmation prompt."""
@@ -343,6 +359,27 @@ class NegotiationEngine:
                 extracted = self._understand_chat(chat_message.message, session, current_offer, history_str)
                 if extracted is not None:
                     has_price, unit_price, total_price, reply, has_qty_change, new_qty, accepts_deal = extracted
+                    fallback_qty = self._extract_quantity_fallback(chat_message.message)
+                    fallback_price = self._extract_explicit_price_fallback(chat_message.message)
+                    extracted_prices = [
+                        price for price in (unit_price, total_price)
+                        if price is not None
+                    ]
+                    qty_was_used_as_price = any(
+                        abs(float(price) - float(fallback_qty)) <= 0.01
+                        for price in extracted_prices
+                    ) if fallback_qty is not None else False
+                    if (
+                        fallback_qty is not None
+                        and fallback_price is None
+                        and (not has_price or qty_was_used_as_price)
+                    ):
+                        has_qty_change = True
+                        new_qty = fallback_qty
+                        has_price = False
+                        unit_price = None
+                        total_price = None
+                        accepts_deal = False
 
                     # ── Buyer accepts the current counter ─────────
                     if accepts_deal and not has_price:
@@ -449,6 +486,12 @@ class NegotiationEngine:
                                 total_price = unit_price
                                 unit_price = None
 
+                    if (
+                        has_qty_change and new_qty is not None
+                        and new_qty > session.inventory.available_quantity
+                    ):
+                        return self._quantity_exceeded_response(session_id, session, chat_message, new_qty)
+
                     # Handle quantity change (with or without a price offer)
                     if has_qty_change and new_qty is not None and new_qty > 0:
                         self._apply_quantity_change(session, new_qty)
@@ -524,35 +567,7 @@ class NegotiationEngine:
                                 rounds_remaining=turn_response.rounds_remaining,
                             )
                     elif has_qty_change and new_qty is not None and new_qty > 0:
-                        # Pure quantity change — acknowledge and show updated pricing
-                        eng = state.engine_state
-                        if eng:
-                            # Use bulk_target_price (reflects volume discount)
-                            per_unit = eng.bulk_target_price
-                            if eng.counter_history:
-                                # If prior counters are below bulk target, honour them
-                                per_unit = min(eng.counter_history[-1], per_unit)
-                        else:
-                            # Engine not initialized yet — compute bulk target from product data
-                            from ..agents.negotiation_engine import compute_bulk_target_price
-                            mode = session.strategy.mode.value if session.strategy else "MAX_PROFIT"
-                            per_unit = compute_bulk_target_price(
-                                float(session.product.base_price), new_qty, mode,
-                            )
-                        qty_msg = (
-                            f"Updated to {new_qty} unit(s). "
-                            f"Our current offer is ${per_unit:.2f} per unit "
-                            f"(${per_unit * new_qty:.2f} total for {new_qty} units). "
-                            f"What price would you like to offer?"
-                        )
-                        # Store in chat history
-                        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
-                        state.chat_history.append({"role": "Seller", "text": qty_msg})
-                        return ChatResponse(
-                            session_id=session_id,
-                            message=qty_msg,
-                            has_price_offer=False,
-                        )
+                        return self._quantity_update_response(session_id, session, chat_message, new_qty)
                     else:
                         # Pure conversation — return LLM reply
                         reply_text = reply or "Could you please make a specific price offer?"
@@ -624,6 +639,38 @@ class NegotiationEngine:
                 message=confirm_msg,
                 has_price_offer=False,
             )
+        fallback_qty = self._extract_quantity_fallback(chat_message.message)
+        fallback_price = self._extract_explicit_price_fallback(chat_message.message)
+
+        if fallback_qty is not None:
+            if fallback_qty > session.inventory.available_quantity:
+                return self._quantity_exceeded_response(session_id, session, chat_message, fallback_qty)
+
+            self._apply_quantity_change(session, fallback_qty)
+
+            if fallback_price is None:
+                return self._quantity_update_response(session_id, session, chat_message, fallback_qty)
+
+            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+            buyer_offer = BuyerOffer(
+                offered_price=Decimal(str(fallback_price)),
+                message=chat_message.message,
+                offered_quantity=fallback_qty,
+            )
+            turn_response = self.process_turn(session_id, buyer_offer)
+            state.chat_history.append({"role": "Seller", "text": turn_response.message})
+            return ChatResponse(
+                session_id=session_id,
+                message=turn_response.message,
+                has_price_offer=True,
+                extracted_price=Decimal(str(fallback_price)),
+                round_number=turn_response.round_number,
+                status=turn_response.status,
+                pricing=turn_response.pricing,
+                can_continue=turn_response.can_continue,
+                rounds_remaining=turn_response.rounds_remaining,
+            )
+
         match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
         if match:
             price = float(match.group(1))
@@ -651,7 +698,9 @@ class NegotiationEngine:
                     offered_price=Decimal(str(price)),
                     message=chat_message.message,
                 )
+                state.chat_history.append({"role": "Buyer", "text": chat_message.message})
                 turn_response = self.process_turn(session_id, buyer_offer)
+                state.chat_history.append({"role": "Seller", "text": turn_response.message})
                 return ChatResponse(
                     session_id=session_id,
                     message=turn_response.message,
@@ -668,6 +717,106 @@ class NegotiationEngine:
         return ChatResponse(
             session_id=session_id,
             message=f"Thank you for your interest in {session.product.product_name}! Our current offer is ${current_offer} per unit. Feel free to make a price offer and we'll see what we can work out.",
+            has_price_offer=False,
+        )
+
+    def _extract_quantity_fallback(self, message: str) -> Optional[int]:
+        """Deterministic fallback for quantity-only chat when LLM is disabled."""
+        for pattern in (_QUANTITY_WORD_RE, _QUANTITY_INTENT_RE):
+            match = pattern.search(message)
+            if match:
+                try:
+                    qty = int(match.group(1))
+                    return qty if qty > 0 else None
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _extract_explicit_price_fallback(self, message: str) -> Optional[float]:
+        """Extract explicit prices without treating quantity counts as offers."""
+        match = _EXPLICIT_PRICE_RE.search(message)
+        if not match:
+            return None
+
+        value = match.group(1) or match.group(2)
+        try:
+            price = float(value)
+            return price if price > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _quantity_offer_price(
+        self,
+        session: NegotiationSession,
+        new_qty: int,
+    ) -> float:
+        """Return the visible per-unit offer after a quantity change."""
+        state = session.pricing_state
+        eng = state.engine_state if state else None
+        if eng:
+            per_unit = eng.bulk_target_price
+            if eng.counter_history:
+                per_unit = min(eng.counter_history[-1], per_unit)
+        else:
+            from ..agents.negotiation_engine import compute_bulk_target_price
+            mode = session.strategy.mode.value if session.strategy else "MAX_PROFIT"
+            per_unit = compute_bulk_target_price(
+                float(session.product.base_price), new_qty, mode,
+            )
+        return round(float(per_unit), 2)
+
+    def _quantity_update_response(
+        self,
+        session_id: UUID,
+        session: NegotiationSession,
+        chat_message: ChatMessage,
+        new_qty: int,
+    ) -> ChatResponse:
+        """Acknowledge a pure quantity change and keep visible state in sync."""
+        state = session.pricing_state
+        per_unit = self._quantity_offer_price(session, new_qty)
+        current_offer = Decimal(str(per_unit))
+        state.current_offer = current_offer
+        if state.offers_history and not state.buyer_history:
+            state.offers_history[-1] = current_offer
+        elif not state.offers_history:
+            state.offers_history.append(current_offer)
+
+        qty_msg = (
+            f"Updated to {new_qty} unit(s). "
+            f"Our current offer is ${per_unit:.2f} per unit "
+            f"(${per_unit * new_qty:.2f} total for {new_qty} units). "
+            f"What price would you like to offer?"
+        )
+        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+        state.chat_history.append({"role": "Seller", "text": qty_msg})
+        self.session_manager.update_session(session)
+        return ChatResponse(
+            session_id=session_id,
+            message=qty_msg,
+            has_price_offer=False,
+        )
+
+    def _quantity_exceeded_response(
+        self,
+        session_id: UUID,
+        session: NegotiationSession,
+        chat_message: ChatMessage,
+        requested_qty: int,
+    ) -> ChatResponse:
+        """Reject quantity changes that exceed available inventory."""
+        state = session.pricing_state
+        msg = (
+            f"We only have {session.inventory.available_quantity} unit(s) available, "
+            f"so I can't update the order to {requested_qty} units. "
+            f"Please choose {session.inventory.available_quantity} unit(s) or fewer."
+        )
+        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+        state.chat_history.append({"role": "Seller", "text": msg})
+        self.session_manager.update_session(session)
+        return ChatResponse(
+            session_id=session_id,
+            message=msg,
             has_price_offer=False,
         )
 

@@ -387,12 +387,15 @@ class PricingStrategyAgent:
                 concession_made = state.current_offer - counter_price
 
         remaining_budget = Decimal(str(result.remaining_concession_budget))
-        total_budget = posture.total_concession_budget if posture.total_concession_budget > 0 else Decimal("1")
-        budget_used_pct = min(
-            Decimal("100"),
-            ((total_budget - remaining_budget) / total_budget * 100)
-            if total_budget > 0 else Decimal("0"),
-        )
+        if state.engine_state and state.engine_state.total_concession_budget > 0:
+            total_budget = Decimal(str(state.engine_state.total_concession_budget))
+        else:
+            total_budget = posture.total_concession_budget
+        if total_budget <= 0:
+            budget_used_pct = Decimal("0")
+        else:
+            budget_used_pct = (total_budget - remaining_budget) / total_budget * 100
+            budget_used_pct = max(Decimal("0"), min(Decimal("100"), budget_used_pct))
 
         violations = []
         if offered < product.min_acceptable_price:
