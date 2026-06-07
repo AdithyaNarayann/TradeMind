@@ -87,22 +87,13 @@ class ContextAnalysisAgent:
         strategy: StrategicControls,
     ) -> StrategicPosture:
         """
-        Analyze inputs and produce strategic posture using AI.
-        
-        This is the main entry point for context analysis.
+        Analyze inputs and produce strategic posture.
+
+        Always uses the deterministic heuristic — the LLM path has
+        been removed because it introduced non-determinism into
+        posture calculations that propagate into pricing.
         """
-        # Try AI-powered analysis first
-        if self.llm.enabled:
-            try:
-                posture = self._ai_analyze(product, inventory, strategy)
-                if posture is not None:
-                    logger.info("ai_context_analysis_used", aggressiveness=str(posture.aggressiveness))
-                    return posture
-            except Exception as e:
-                logger.error("ai_context_analysis_error", error=str(e))
-        
-        # Fallback to basic heuristic
-        logger.info("context_analysis_fallback")
+        logger.info("context_analysis_heuristic")
         return self._fallback_analyze(product, inventory, strategy)
     
     def _ai_analyze(

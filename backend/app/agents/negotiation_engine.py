@@ -47,8 +47,8 @@ TUNING = {
     "scarcity_floor_lift":                  0.05,
 
     # ── Concession curve ─────────────────────────────────────
-    "curve_power_max_profit":               2.8,
-    "curve_power_min_loss":                 1.3,
+    "curve_power_max_profit":               2.2,    # was 2.8 — slightly less steep
+    "curve_power_min_loss":                 1.1,    # was 1.3
 
     # ── BBI ──────────────────────────────────────────────────
     "bbi_start":                            50.0,
@@ -57,8 +57,8 @@ TUNING = {
     "bbi_repeat_penalty":                   10.0,
     "bbi_retrograde_penalty":               22.0,
     "bbi_retrograde_after_improvement_penalty": 5.0,
-    "bbi_good_move_threshold":              0.04,
-    "bbi_good_move_reward":                 9.0,
+    "bbi_good_move_threshold":              0.03,   # was 0.04 — recognize 3%+ as good
+    "bbi_good_move_reward":                 11.0,   # was 9.0
     "bbi_small_move_threshold":             0.01,
     "bbi_small_move_reward":                3.0,
     "bbi_anchor_penalty":                   14.0,
@@ -117,7 +117,7 @@ TUNING = {
     },
 
     # ── Per-round concession cap ──────────────────────────────
-    "max_concession_per_round_budget_pct":  0.05,
+    "max_concession_per_round_budget_pct":  0.12,   # was 0.05
 
     # ── Anti-manipulation ────────────────────────────────────
     "stagnation_threshold_pct":             0.02,
@@ -126,7 +126,7 @@ TUNING = {
 
     # ── First-offer protection ───────────────────────────────
     "round1_max_concession_pct":            0.10,
-    "round1_budget_fraction":               0.04,
+    "round1_budget_fraction":               0.12,   # was 0.04
 
     # ── PSIM (Price Signal Integrity Model) ──────────────────
     "psim_healthy_ratio_threshold":         0.85,
@@ -163,7 +163,7 @@ TUNING = {
     # ── Acceptance guards ─────────────────────────────────────
     "min_acceptance_round_max_profit":      3,
     "min_acceptance_round_min_loss":        2,
-    "min_acceptance_ratio_max_profit":      0.88,
+    "min_acceptance_ratio_max_profit":      0.86,   # was 0.88
     "min_acceptance_ratio_min_loss":        0.78,
 
     # ── Last-round acceptance guard ───────────────────────────
@@ -172,12 +172,13 @@ TUNING = {
     #   accepting a lowball just because rounds ran out.
     "last_round_min_counter_ratio":         0.90,
 
-    # ── Redemption (context-aware unfreeze) ──────────────────
-    #   To unfreeze, buyer must bridge redemption_bridge_pct of the
-    #   gap between their best pre-freeze offer and the frozen counter.
-    "redemption_bridge_pct":                0.40,
+    # ── Fair-offer proximity (Upgrade 1 — replaces redemption bridge) ─
+    #   If buyer's offer >= this fraction of frozen counter → unfreeze.
+    #   0.96 means the offer must be within 4% of the frozen counter.
+    "fair_offer_proximity_ratio":           0.96,
 
-    # Legacy keys kept for reference; no longer drive unfreezing:
+    # Legacy keys kept for backward compatibility:
+    "redemption_bridge_pct":                0.0,
     "redemption_good_moves":                2,
     "redemption_cumulative_pct":            0.06,
 
@@ -187,6 +188,19 @@ TUNING = {
 
     # ── Post-redemption protection ────────────────────────────
     "post_redemption_min_rounds":           3,
+
+    # ── Concession reciprocity (Upgrade 2) ────────────────────
+    #   Scales concession based on buyer's latest price movement.
+    #   reference_move is the neutral point (3% move = 1.0x multiplier).
+    "reciprocity_reference_move":           0.03,
+    "reciprocity_min":                      0.25,   # retrograde → 25% of normal concession
+    "reciprocity_max":                      1.40,   # large buyer moves → 40% bonus
+
+    # ── Fair engagement bonus (Upgrade 6) ─────────────────────
+    #   When buyer's offer is close to last counter, apply a bonus
+    #   multiplier to the concession step.
+    "fair_engagement_threshold":            0.88,   # buyer within 12% of counter
+    "fair_engagement_bonus":                1.25,   # 25% more generous
 }
 
 
@@ -372,6 +386,9 @@ class NegotiationState:
     _freeze_offer_idx:          int             = field(default=-1)
     zopa_no_overlap_count:      int             = field(default=0)
     scarcity_locked:            bool            = field(default=False)
+
+    # ── Last engine result (set by _build_result for verbalize access) ─
+    _last_result:               Optional["EngineResult"] = field(default=None)
 
     def __post_init__(self) -> None:
         T = TUNING
@@ -589,27 +606,6 @@ def _determine_phase(s: NegotiationState) -> NegotiationPhase:
     else:
         raw_phase = NegotiationPhase.CLOSING
 
-    # Post-redemption phase cap: for a few rounds after unfreeze,
-    # hold phase at PROBING so round_pressure doesn't cause a
-    # massive concession on the first real counter after a long freeze.
-    if s._post_redemption_round >= 0:
-        rounds_since = s.current_round - s._post_redemption_round
-        if rounds_since <= T["post_redemption_min_rounds"]:
-            _PHASE_ORDER = [
-                NegotiationPhase.ANCHOR_RESIST,
-                NegotiationPhase.PROBING,
-                NegotiationPhase.CONCEDING,
-                NegotiationPhase.CLOSING,
-            ]
-            cap = NegotiationPhase.PROBING
-            cap_idx = _PHASE_ORDER.index(cap)
-            raw_idx = _PHASE_ORDER.index(raw_phase) if raw_phase in _PHASE_ORDER else 0
-            if raw_idx > cap_idx:
-                raw_phase = cap
-        else:
-            # Cap period over — clear marker
-            s._post_redemption_round = -1
-
     return raw_phase
 
 
@@ -626,6 +622,42 @@ def _estimate_buyer_ceiling(s: NegotiationState) -> float:
         * T["zopa_wtp_to_price_factor"]
     )
     return round(clamp(raw, s.dynamic_floor, s.base_price), 2)
+
+
+def _extrapolate_buyer_ceiling(s: NegotiationState) -> float:
+    """
+    If we have 3+ buyer offers, fit a linear trend and project where
+    the buyer will top out (their estimated ceiling).  Falls back to
+    the WTP-based estimate with fewer offers.
+    """
+    if len(s.offer_history) < 3:
+        return _estimate_buyer_ceiling(s)
+
+    # Use last 4 offers max for recency bias
+    recent = s.offer_history[-4:]
+    n = len(recent)
+
+    # Simple linear regression: offer index → price
+    xs = list(range(n))
+    x_mean = (n - 1) / 2
+    y_mean = sum(recent) / n
+
+    num = sum((xs[i] - x_mean) * (recent[i] - y_mean) for i in range(n))
+    den = sum((xs[i] - x_mean) ** 2 for i in range(n))
+
+    if den == 0:
+        return _estimate_buyer_ceiling(s)
+
+    slope = num / den
+
+    # Project 2 more rounds ahead
+    projected = recent[-1] + slope * 2
+
+    # Blend with WTP estimate (50/50 when we have evidence)
+    wtp_estimate = _estimate_buyer_ceiling(s)
+    blended = (projected + wtp_estimate) / 2
+
+    return round(clamp(blended, s.dynamic_floor, s.base_price), 2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -699,6 +731,13 @@ def _update_bbi(
     if extraction.get("urgency_signal"):
         s.p_high_wtp = clamp(
             s.p_high_wtp + T["wtp_urgency_boost"],
+            T["wtp_clamp_min"], T["wtp_clamp_max"],
+        )
+
+    # F) Competitor price claim → legitimate tactic, don't penalize
+    if extraction.get("competitor_price_claim"):
+        s.p_high_wtp = clamp(
+            s.p_high_wtp + 0.05,
             T["wtp_clamp_min"], T["wtp_clamp_max"],
         )
 
@@ -807,6 +846,19 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
     else:
         base_step = s.remaining_concession_budget * (round_pressure ** curve_power)
 
+    # ── Reciprocity signal (Upgrade 2) ────────────────────────
+    #   Scale concession based on buyer's latest price movement
+    #   relative to their previous best offer.
+    reciprocity_mult = 1.0
+    if len(s.offer_history) >= 2:
+        buyer_prev_best = max(s.offer_history[:-1])
+        buyer_move_pct = (s.offer_history[-1] - buyer_prev_best) / s.base_price
+        if buyer_move_pct > 0:
+            raw_r = buyer_move_pct / T["reciprocity_reference_move"]
+            reciprocity_mult = clamp(raw_r, T["reciprocity_min"], T["reciprocity_max"])
+        else:
+            reciprocity_mult = T["reciprocity_min"]
+
     # ── Composite concession step (total across all units) ────
     concession_step = (
         base_step
@@ -815,6 +867,7 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
         * scarcity_factor
         * historical_factor
         * phase_mult
+        * reciprocity_mult
     )
 
     # ── Per-round concession cap ──────────────────────────────
@@ -823,6 +876,16 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
     #   a fraction of remaining budget so it scales with margin.
     max_round = s.remaining_concession_budget * T["max_concession_per_round_budget_pct"]
     concession_step = min(concession_step, max_round)
+
+    # ── Fair engagement bonus (Upgrade 6) ─────────────────────
+    #   If buyer's offer is within 12% of the last counter, they're
+    #   engaging fairly — give a 25% bonus concession.
+    if s.counter_history:
+        last_ctr = s.counter_history[-1]
+        current_bid = s.offer_history[-1] if s.offer_history else 0.0
+        proximity = current_bid / last_ctr if last_ctr > 0 else 0
+        if proximity >= T["fair_engagement_threshold"]:
+            concession_step *= T["fair_engagement_bonus"]
 
     concession_per_unit = concession_step / s.quantity
     raw_counter = last_counter - concession_per_unit
@@ -882,6 +945,16 @@ def _should_accept(
     if s.final_offer_issued:
         # After final offer, accept anything above floor
         min_ratio = s.dynamic_floor / s.base_price
+
+    # Fair engagement relaxation (Upgrade 6): relax ratio by 3%
+    # when buyer is close to our counter.
+    if s.counter_history and not s.final_offer_issued:
+        last_ctr = s.counter_history[-1]
+        current_bid = s.offer_history[-1] if s.offer_history else 0.0
+        eng_proximity = current_bid / last_ctr if last_ctr > 0 else 0
+        if eng_proximity >= T["fair_engagement_threshold"]:
+            min_ratio *= 0.97  # 3% relaxation
+
     if offer_ratio < min_ratio:
         return False
 
@@ -981,7 +1054,7 @@ def _build_result(
     psim_triggered: bool = False,
     irgm_triggered: bool = False,
 ) -> EngineResult:
-    return EngineResult(
+    result = EngineResult(
         decision=decision,
         counter_unit_price=round(counter_unit, 2),
         counter_total_price=round(counter_unit * s.quantity, 2),
@@ -995,7 +1068,7 @@ def _build_result(
         round_number=s.current_round,
         rounds_remaining=s.max_rounds - s.current_round,
         remaining_concession_budget=round(s.remaining_concession_budget, 2),
-        zopa_estimated_buyer_ceiling=buyer_ceiling or _estimate_buyer_ceiling(s),
+        zopa_estimated_buyer_ceiling=buyer_ceiling or _extrapolate_buyer_ceiling(s),
         psim_triggered=psim_triggered,
         irgm_triggered=irgm_triggered,
         session_terminated=(
@@ -1003,6 +1076,8 @@ def _build_result(
             or s.phase == NegotiationPhase.TERMINATED
         ),
     )
+    s._last_result = result
+    return result
 
 
 def _accept_result(
@@ -1054,14 +1129,9 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
         s.dynamic_floor,
     )
 
-    # ── Quantity change: reset stale counters ─────────────────
-    #   On decrease: old bulk-discounted counters are too low for
-    #   the smaller quantity — always clear (prevent exploit).
-    #   On increase: if old counters are above the new (lower)
-    #   bulk_target_price, they don't reflect the volume discount
-    #   — clear so concession restarts from bulk_target_price.
-    # Always clear freeze state — the freeze was based on the
-    # old-qty behaviour and doesn't apply after a qty change.
+    # ── Quantity change: always reset counters and freeze state ──
+    #   The deal fundamentally changed — old counters don't reflect
+    #   the correct bulk discount for the new quantity (Bug 7 fix).
     s.final_offer_issued = False
     s.consecutive_stagnant = 0
     s.retrograde_count = 0
@@ -1070,20 +1140,12 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
     s._freeze_low_offer = 0.0
     s._freeze_offer_idx = -1
 
-    if s.quantity < old_qty or (
-        s.counter_history and s.counter_history[-1] > s.bulk_target_price + 0.01
-    ):
-        s.counter_history.clear()
-
-        # ── Reset round tracking ─────────────────────────────
-        #   Counter restarts from bulk_target — stale round
-        #   pressure would inflate the first concession step.
-        #   Cap max_rounds at remaining rounds (min 2) so the
-        #   buyer cannot exploit qty-changes for unlimited resets.
-        s.offer_history.clear()
-        rounds_remaining = max(s.max_rounds - s.current_round, 2)
-        s.max_rounds = rounds_remaining
-        s.current_round = 0
+    # Always clear on quantity change (Bug 7)
+    s.counter_history.clear()
+    s.offer_history.clear()
+    rounds_remaining = max(s.max_rounds - s.current_round, 2)
+    s.max_rounds = rounds_remaining
+    s.current_round = 0
 
     # Recalculate scarcity lock
     s.scarcity_locked = (
@@ -1172,57 +1234,23 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     # ── STEP 5: Update BBI (ALWAYS — tracks buyer behavior) ──
     state.bbi, bbi_tag = _update_bbi(state, extraction)
 
-    # ── STEP 5.5: Context-aware redemption ──────────────────────
-    #   Single-offer unfreeze: the buyer must demonstrate genuine
-    #   intent by offering MORE than their best pre-freeze offer by
-    #   a meaningful fraction of the gap between that best offer and
-    #   the frozen counter.  Tiny $1 increments past the context
-    #   best will NOT unfreeze — the buyer must "bridge the gap."
-    #
-    #   Formula:
-    #     context_best  = max(offer_history up to & including freeze)
-    #     frozen_counter = counter at time of freeze
-    #     gap           = frozen_counter − context_best
-    #     threshold     = context_best + gap × redemption_bridge_pct
-    #
-    #   If current offer ≥ threshold → unfreeze and resume normal
-    #   negotiation.  Counter ratchet (STEP 10.1) independently
-    #   prevents unearned concessions.
+    # ── STEP 5.5: Fair-offer threshold unfreeze (Upgrade 1) ──────
+    #   If the buyer's current offer is within fair_offer_proximity_ratio
+    #   of the frozen counter, unfreeze and resume normal negotiation.
+    #   No bridge computation or pattern tracking needed.
     context_redeemed = False
-    if (state.final_offer_issued
-            and state._freeze_offer_idx >= 0
-            and state.counter_history):
-        # Best offer the buyer made before / at the freeze point
-        context_best = max(state.offer_history[:state._freeze_offer_idx + 1])
-        # The counter that was frozen
+    if state.final_offer_issued and state.counter_history:
         frozen_counter = state.counter_history[-1]
-        gap = max(frozen_counter - context_best, 0.0)
-        bridge_pct = TUNING["redemption_bridge_pct"]
-        redemption_threshold = context_best + gap * bridge_pct
-
-        current_offer = state.offer_history[-1]
-        if current_offer >= redemption_threshold:
+        current_offer = state.offer_history[-1] if state.offer_history else 0.0
+        fair_proximity = TUNING["fair_offer_proximity_ratio"]
+        if current_offer >= frozen_counter * fair_proximity:
             context_redeemed = True
 
     if context_redeemed:
         state.final_offer_issued = False
         state.consecutive_stagnant = 0
-        # One-strike rule: set retrograde_count to trigger-1 so a
-        # single retrograde after redemption re-freezes immediately.
+        # One-strike rule: a single retrograde after unfreeze re-freezes
         state.retrograde_count = TUNING["retrograde_immediate_trigger"] - 1
-        state.good_faith_after_final = 0
-        state._freeze_low_offer = 0.0
-        state._freeze_offer_idx = -1
-
-        # Post-redemption protection: guarantee minimum rounds so
-        # round_pressure doesn't spike and cause deep concession.
-        rounds_left = state.max_rounds - state.current_round
-        min_post = TUNING["post_redemption_min_rounds"]
-        if rounds_left < min_post:
-            state.max_rounds = state.current_round + min_post
-
-        # Mark the round for post-redemption phase capping
-        state._post_redemption_round = state.current_round
 
         # Re-determine phase now that FINAL_OFFER flag is cleared
         state.phase = _determine_phase(state)
@@ -1235,9 +1263,6 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     #   consecutive_stagnant reflect the current round.
     manip_tag = _check_manipulation(state, extraction)
     if manip_tag in (ReasoningTag.STAGNATION_FINAL, ReasoningTag.RETROGRADE_FINAL):
-        # Record freeze-point for cumulative redemption tracking
-        state._freeze_low_offer = state.offer_history[-1]
-        state._freeze_offer_idx = len(state.offer_history) - 1
         last = state.counter_history[-1] if state.counter_history else state.dynamic_floor
         state.counter_history.append(last)
         return _build_result(state, "final_offer", last, manip_tag)
@@ -1269,7 +1294,7 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     # ── STEP 8: ZOPA check ────────────────────────────────────
     #   Only count no-overlap rounds AFTER the anchor-resist phase.
     #   Early lowballs are normal tactics, not proof of no overlap.
-    buyer_ceiling = _estimate_buyer_ceiling(state)
+    buyer_ceiling = _extrapolate_buyer_ceiling(state)
     meaningful_overlap = buyer_ceiling >= state.dynamic_floor + (0.01 * state.base_price)
     if state.phase != NegotiationPhase.ANCHOR_RESIST:
         if not meaningful_overlap:
@@ -1287,9 +1312,6 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
             if state.counter_history
             else state.bulk_target_price
         )
-        # Record freeze-point for cumulative redemption tracking
-        state._freeze_low_offer = state.offer_history[-1] if state.offer_history else 0.0
-        state._freeze_offer_idx = len(state.offer_history) - 1
         state.counter_history.append(anchor)
         return _build_result(
             state, "final_offer", anchor,

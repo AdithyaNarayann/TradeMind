@@ -513,6 +513,13 @@ NEGOTIATION CONTEXT:
 - Current quantity: {current_quantity} unit(s)
 - Price history: {negotiation_history}
 {total_context}{history_section}
+CRITICAL — BACKWARD REFERENCES vs FORWARD BIDS:
+If the buyer mentions a past price (e.g., "earlier you said $299", "you offered $250 before",
+"your original price was $X"), this is a REFERENCE to a previous round, NOT a new offer.
+- Do NOT set has_price=true for backward-looking references.
+- A new bid must be forward-looking: "I offer $X", "how about $X", "can you do $X".
+- If the same message contains BOTH a reference AND a bid, ONLY extract the bid.
+
 BUYER'S MESSAGE:
 "{buyer_message}"
 

@@ -257,22 +257,30 @@ class NegotiationEngine:
         if eng and eng.max_rounds > session.strategy.max_rounds:
             session.strategy.max_rounds = eng.max_rounds
 
-        # Step 6: Generate response message
-        conv_context = ConversationContext(
-            round_number=session.pricing_state.current_round,
-            max_rounds=session.strategy.max_rounds,
-            mode=session.strategy.mode,
-            product_name=session.product.product_name,
-            quantity=session.inventory.requested_quantity,
-            buyer_offered=buyer_offer.offered_price,
-            our_offer=decision.counter_offer_price,
-        )
-
-        message = self.conversation_agent.generate_response(
-            decision=decision,
-            context=conv_context,
-            floor_price=session.posture.reservation_price,
-        )
+        # Step 6: Generate response via verbalize (Bug 4 fix)
+        #   Use pricing_agent.verbalize() instead of conversation_agent
+        #   so the response tone matches the reasoning tag.
+        eng = session.pricing_state.engine_state
+        if eng and eng._last_result is not None:
+            # Sync chat_history into engine state for variety (Bug 6)
+            eng._chat_history_cache = session.pricing_state.chat_history
+            message = self.pricing_agent.verbalize(eng._last_result, eng)
+        else:
+            # Fallback: use conversation_agent if engine result unavailable
+            conv_context = ConversationContext(
+                round_number=session.pricing_state.current_round,
+                max_rounds=session.strategy.max_rounds,
+                mode=session.strategy.mode,
+                product_name=session.product.product_name,
+                quantity=session.inventory.requested_quantity,
+                buyer_offered=buyer_offer.offered_price,
+                our_offer=decision.counter_offer_price,
+            )
+            message = self.conversation_agent.generate_response(
+                decision=decision,
+                context=conv_context,
+                floor_price=session.posture.reservation_price,
+            )
 
         # Step 7: Determine final status
         status = self._determine_status(session, decision)
@@ -888,21 +896,13 @@ class NegotiationEngine:
             eng._freeze_offer_idx = -1
             eng._post_redemption_round = -1
 
-            # Clear counter history only when entries are stale
-            # (on decrease, or when counters exceed new bulk target)
-            if new_qty < old_qty or (
-                eng.counter_history and eng.counter_history[-1] > eng.bulk_target_price + 0.01
-            ):
-                eng.counter_history.clear()
-
-                # Reset round tracking — counter restarts from
-                # bulk_target, so stale round pressure would inflate
-                # the first concession step.  Cap max_rounds at
-                # remaining rounds (min 2) to prevent exploitation.
-                eng.offer_history.clear()
-                rounds_remaining = max(eng.max_rounds - eng.current_round, 2)
-                eng.max_rounds = rounds_remaining
-                eng.current_round = 0
+            # Always clear counter and offer history on quantity
+            # change (Bug 7 fix) — the deal fundamentally changed.
+            eng.counter_history.clear()
+            eng.offer_history.clear()
+            rounds_remaining = max(eng.max_rounds - eng.current_round, 2)
+            eng.max_rounds = rounds_remaining
+            eng.current_round = 0
 
         # Recalculate concession budget for new quantity
         new_total_budget = max((eng.base_price - eng.dynamic_floor) * new_qty, 0.0)

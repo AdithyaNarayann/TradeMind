@@ -96,15 +96,18 @@ CONTEXT:
 
 Return ONLY this JSON (no markdown, no commentary):
 {{
-  "quantity":             <int or null — if buyer mentions a new quantity>,
-  "unit_price_offered":   <float or null — buyer's per-unit price offer>,
-  "total_price_offered":  <float or null — buyer's total-price offer>,
-  "intent":               "<offer|inquiry|accept|reject|walkaway>",
-  "tone":                 "<aggressive|neutral|cooperative|desperate>",
-  "anchoring_detected":   <true or false>,
-  "urgency_signal":       <true or false>,
-  "bundle_request":       <true or false>,
-  "social_proof_claim":   <true or false>
+  "quantity":               <int or null — if buyer mentions a new quantity>,
+  "unit_price_offered":     <float or null — buyer's per-unit price offer>,
+  "total_price_offered":    <float or null — buyer's total-price offer>,
+  "intent":                 "<offer|inquiry|accept|reject|walkaway|conditional>",
+  "tone":                   "<aggressive|neutral|cooperative|desperate>",
+  "anchoring_detected":     <true or false>,
+  "urgency_signal":         <true or false>,
+  "bundle_request":         <true or false>,
+  "social_proof_claim":     <true or false>,
+  "competitor_price_claim": <float or null — if buyer claims a cheaper price elsewhere>,
+  "conditional_offer":      <true or false — offer contingent on something>,
+  "condition_text":         <string or null — what condition the buyer attached>
 }}"""
 
 
@@ -134,6 +137,32 @@ DECISION CONTEXT:
 - Buyer behavior: {bbi_category}
 - Quantity: {quantity} unit(s)
 
+REASONING TAG GUIDANCE (use this to set your tone and phrasing):
+- BELOW_FLOOR_REJECT: Firm, clear. Do not say "we're getting closer." Invite a better offer.
+- BBI_LOWBALL: Push back on the low anchor. Signal it's significantly off. Stay professional.
+- RETROGRADE_FINAL: Short and firm. Buyer moved backwards. One sentence, no concession language.
+- STAGNATION_FINAL: Note the lack of progress. You need real movement to continue.
+- ANCHOR_RESIST: Deflect the anchoring attempt. Restate your value.
+- BAYESIAN_HOLD: Brief and confident. No urgency. The offer stands.
+- PHASE_CLOSE: Mild urgency. Encourage closure.
+- UTILITY_ACCEPT / EXTENDED_UTILITY / LAST_ROUND_ACCEPT: Warm, genuine. Confirm the deal.
+- ZOPA_NO_OVERLAP: Signal a real gap. Make the final offer clear. Be respectful.
+- ROUND1_HOLD: Polite firmness. It's early. Hold the opening position.
+- HISTORICAL_TARGET: Standard counter, no special tone.
+- BUDGET_EXHAUSTED: This is the floor. Nothing more to give. Be direct.
+
+CRITICAL LANGUAGE RULES:
+- If below_floor is True: NEVER say "we're getting closer" or use positive progress language.
+- If offer_gap_pct > 20: Do not express enthusiasm. Be direct and firm.
+- If offer_gap_pct < 5: Use encouraging, closing language.
+- Match language intensity to the actual gap.
+
+Below floor: {below_floor}
+Offer gap pct: {offer_gap_pct}
+
+PREVIOUS RESPONSES (do NOT reuse any of these phrases or sentence structures):
+{previous_responses}
+
 RULES:
 - If decision is "accept": confirm the deal at ${counter_unit_price} per unit.
 - If decision is "counter": present ${counter_unit_price} as our offer.
@@ -142,7 +171,7 @@ RULES:
 - You MUST mention the price ${counter_unit_price} per unit in your response.
 - When quantity is more than 1, ALWAYS also state the total of ${counter_total_price} for {quantity} units.
 - Do NOT mention any price other than ${counter_unit_price} (unit) or ${counter_total_price} (total).
-
+{conditional_note}
 Generate the response:"""
 
 
@@ -212,7 +241,7 @@ class PricingStrategyAgent:
         1. Ensure NegotiationState exists (lazy-init on first call)
         2. Extract structured intent from buyer message via LLM
         3. Feed extraction to process_round()
-        4. Map EngineResult → PricingDecision for the legacy pipeline
+        4. Map EngineResult -> PricingDecision for the legacy pipeline
         """
         offered = buyer_offer.offered_price
         quantity = buyer_offer.offered_quantity or inventory.requested_quantity
@@ -276,6 +305,9 @@ class PricingStrategyAgent:
             "urgency_signal": False,
             "bundle_request": False,
             "social_proof_claim": False,
+            "competitor_price_claim": None,
+            "conditional_offer": False,
+            "condition_text": None,
         }
 
         if not buyer_offer.message or not self.llm.enabled:
@@ -306,7 +338,16 @@ class PricingStrategyAgent:
                 base_extraction["urgency_signal"] = bool(data.get("urgency_signal"))
                 base_extraction["bundle_request"] = bool(data.get("bundle_request"))
                 base_extraction["social_proof_claim"] = bool(data.get("social_proof_claim"))
-                if data.get("intent") in ("accept", "reject", "walkaway"):
+                # Upgrade 4: enriched extraction fields
+                comp_claim = data.get("competitor_price_claim")
+                if comp_claim is not None:
+                    try:
+                        base_extraction["competitor_price_claim"] = float(comp_claim)
+                    except (ValueError, TypeError):
+                        pass
+                base_extraction["conditional_offer"] = bool(data.get("conditional_offer"))
+                base_extraction["condition_text"] = data.get("condition_text")
+                if data.get("intent") in ("accept", "reject", "walkaway", "conditional"):
                     # Guard: "I'll take it for $X" where X diverges
                     # from the counter is a counter-offer, NOT acceptance.
                     if (
@@ -358,7 +399,7 @@ class PricingStrategyAgent:
         state: PricingState,
         quantity: int,
     ) -> PricingDecision:
-        """Map EngineResult → legacy PricingDecision."""
+        """Map EngineResult -> legacy PricingDecision."""
 
         # Translate decision
         if result.decision == "accept":
@@ -407,6 +448,8 @@ class PricingStrategyAgent:
             decision=decision,
             counter_offer_price=counter_price,
             accepted_price=Decimal(str(result.counter_unit_price)) if decision == OfferDecision.ACCEPT else None,
+            is_final_offer=result.decision == "final_offer",
+            reasoning_tag=result.reasoning_tag.value,
             margin_percentage=margin_pct,
             profit_per_unit=profit_unit,
             total_profit=total_profit,
@@ -464,6 +507,24 @@ class PricingStrategyAgent:
         The LLM must NEVER see internal state. Only the verb_context
         (a curated subset) is passed.
         """
+        # Compute gap metrics for language calibration (Upgrade 8)
+        last_counter_val = result.counter_unit_price
+        current_bid = state.offer_history[-1] if state.offer_history else 0.0
+        below_floor = current_bid < state.dynamic_floor
+        offer_gap_pct = round(
+            abs(last_counter_val - current_bid) / last_counter_val * 100, 1
+        ) if last_counter_val > 0 else 0.0
+
+        # Collect previous Seller responses for variety (Upgrade 5)
+        prev_responses: List[str] = []
+        for entry in getattr(state, '_chat_history_cache', []):
+            if isinstance(entry, dict) and entry.get("role") == "Seller":
+                prev_responses.append(entry["text"])
+        prev_str = "\n".join(f"- {r}" for r in prev_responses[-3:]) if prev_responses else "(none yet)"
+
+        # Conditional note for conditional offers
+        conditional_note = ""
+
         verb_context = {
             "counter_unit_price":   result.counter_unit_price,
             "counter_total_price":  result.counter_total_price,
@@ -475,6 +536,10 @@ class PricingStrategyAgent:
             "rounds_remaining":     result.rounds_remaining,
             "bbi_category":         result.bbi_category,
             "quantity":             state.quantity,
+            "below_floor":          below_floor,
+            "offer_gap_pct":        offer_gap_pct,
+            "previous_responses":   prev_str,
+            "conditional_note":     conditional_note,
         }
 
         raw_response: Optional[str] = None
