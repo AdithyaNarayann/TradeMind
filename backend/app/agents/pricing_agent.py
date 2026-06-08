@@ -159,6 +159,8 @@ CRITICAL LANGUAGE RULES:
 
 Below floor: {below_floor}
 Offer gap pct: {offer_gap_pct}
+Firmness level: {firmness_level} (0=normal, 1=cautious, 2=firm, 3=final — higher = more firm)
+Buyer moving up: {buyer_moving_up}
 
 PREVIOUS RESPONSES (do NOT reuse any of these phrases or sentence structures):
 {previous_responses}
@@ -184,6 +186,14 @@ _TEMPLATE_FALLBACKS = {
     "counter": "I appreciate your offer. My best price is ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total).",
     "final_offer": "This is my final offer: ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). I can't go lower.",
     "reject": "Unfortunately we couldn't reach an agreement. Thank you for your time.",
+}
+
+# Bug F: Firmness-aware fallback variants for when template fallback triggers
+_FIRMNESS_FALLBACKS = {
+    0: "I appreciate your offer. My best price is ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total).",
+    1: "I can offer ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). There's limited room to move further.",
+    2: "Our price is ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). We're near our best offer.",
+    3: "This is our final offer: ${counter_unit_price} per unit for {quantity} unit(s) (${counter_total_price} total). I can't go lower.",
 }
 
 
@@ -525,6 +535,12 @@ class PricingStrategyAgent:
         # Conditional note for conditional offers
         conditional_note = ""
 
+        # ── Graduated firmness context (for LLM tone calibration) ──
+        firmness_level = getattr(state, 'firmness_level', 0)
+        buyer_moving = False
+        if len(state.offer_history) >= 2:
+            buyer_moving = state.offer_history[-1] > state.offer_history[-2]
+
         verb_context = {
             "counter_unit_price":   result.counter_unit_price,
             "counter_total_price":  result.counter_total_price,
@@ -540,6 +556,8 @@ class PricingStrategyAgent:
             "offer_gap_pct":        offer_gap_pct,
             "previous_responses":   prev_str,
             "conditional_note":     conditional_note,
+            "firmness_level":       firmness_level,
+            "buyer_moving_up":      buyer_moving,
         }
 
         raw_response: Optional[str] = None
@@ -569,7 +587,13 @@ class PricingStrategyAgent:
 
     @staticmethod
     def _template_fallback(ctx: dict) -> str:
-        tpl = _TEMPLATE_FALLBACKS.get(ctx["decision"], _TEMPLATE_FALLBACKS["counter"])
+        decision = ctx["decision"]
+        # Bug F: Use firmness-aware fallback for counter decisions
+        if decision == "counter":
+            firmness = ctx.get("firmness_level", 0)
+            tpl = _FIRMNESS_FALLBACKS.get(firmness, _FIRMNESS_FALLBACKS[0])
+        else:
+            tpl = _TEMPLATE_FALLBACKS.get(decision, _TEMPLATE_FALLBACKS["counter"])
         return tpl.replace("${counter_unit_price}", f'{ctx["counter_unit_price"]:.2f}').replace(
             "${counter_total_price}", f'{ctx["counter_total_price"]:.2f}'
         ).replace("{quantity}", str(ctx["quantity"]))

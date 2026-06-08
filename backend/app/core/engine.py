@@ -92,6 +92,22 @@ _EXPLICIT_PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bug A: Quantity-context detection — if ANY of these patterns match,
+# the message is about quantity, NOT price.
+QUANTITY_SENTENCE_RE = re.compile(
+    r'\b(want|need|get|make|change|update|have|give\s*me|send)\s+\d+\s*(units?|pieces?|items?|pcs?|of\s+them)?\b',
+    re.IGNORECASE
+)
+
+# Bug E: Negative response patterns — route to "invite new offer"
+NEGATIVE_RE = re.compile(
+    r'^\s*(?:no+pe?|nah|not\s+interested|that\'?s?\s+too\s+(?:high|much|expensive)|'
+    r'can\'?t\s+do\s+that|no\s+way|not\s+happening|too\s+expensive|'
+    r'that\s+(?:doesn\'?t|won\'?t)\s+work|no\s+deal|not\s+at\s+that\s+price)\s*[.!]?\s*$',
+    re.IGNORECASE
+)
+
+BARE_NO_RE = re.compile(r'^\s*no[.!]?\s*$', re.IGNORECASE)
 
 def _is_pending_confirmation(state) -> bool:
     """Check if the last seller message was a confirmation prompt."""
@@ -266,6 +282,13 @@ class NegotiationEngine:
             eng._chat_history_cache = session.pricing_state.chat_history
             message = self.pricing_agent.verbalize(eng._last_result, eng)
         else:
+            # Bug F: Diagnostic logging when engine result unavailable
+            logger.warning(
+                "verbalize_fallback_no_last_result",
+                has_engine_state=eng is not None,
+                round=session.pricing_state.current_round,
+                decision=decision.decision.value if decision else "NONE",
+            )
             # Fallback: use conversation_agent if engine result unavailable
             conv_context = ConversationContext(
                 round_number=session.pricing_state.current_round,
@@ -360,6 +383,23 @@ class NegotiationEngine:
         history_str = "; ".join(history_parts) if history_parts else "Opening round — no offers exchanged yet"
 
         current_offer = str(state.current_offer) if state else str(session.initial_offer)
+
+        # ── Bug B: Clear zombie pending-confirmation state ──────────
+        #   If the buyer's new message is NOT an acceptance phrase but
+        #   the last seller message was a confirmation prompt, the buyer
+        #   ignored or rejected the confirmation.  Clear the stale
+        #   confirmation context so it doesn't bleed into future turns.
+        msg_stripped_early = chat_message.message.strip()
+        if _is_pending_confirmation(state):
+            is_accept_phrase = (
+                bool(STRONG_ACCEPT_RE.match(msg_stripped_early))
+                or bool(SOFT_ACCEPT_RE.match(msg_stripped_early))
+            )
+            if not is_accept_phrase:
+                logger.info(
+                    "zombie_confirmation_cleared",
+                    message_preview=msg_stripped_early[:50],
+                )
 
         # Step 3: Use LLM to understand buyer's message
         if self.llm.enabled:
@@ -647,6 +687,30 @@ class NegotiationEngine:
                 message=confirm_msg,
                 has_price_offer=False,
             )
+
+        # ── Bug E: Negative response routing ──────────────────────
+        #   "no", "nope", "too expensive" etc. should invite a new
+        #   price offer, not fall through to generic reply or
+        #   accidentally match a number regex.
+        msg_stripped_fb = chat_message.message.strip()
+        if NEGATIVE_RE.match(msg_stripped_fb) or BARE_NO_RE.match(msg_stripped_fb):
+            eng = state.engine_state
+            last_counter = float(current_offer)
+            if eng and eng.counter_history:
+                last_counter = eng.counter_history[-1]
+            reject_reply = (
+                f"I understand that doesn't work for you. "
+                f"Our current offer is ${last_counter:,.2f} per unit. "
+                f"What price would you have in mind?"
+            )
+            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+            state.chat_history.append({"role": "Seller", "text": reject_reply})
+            return ChatResponse(
+                session_id=session_id,
+                message=reject_reply,
+                has_price_offer=False,
+            )
+
         fallback_qty = self._extract_quantity_fallback(chat_message.message)
         fallback_price = self._extract_explicit_price_fallback(chat_message.message)
 
@@ -679,8 +743,11 @@ class NegotiationEngine:
                 rounds_remaining=turn_response.rounds_remaining,
             )
 
+        # ── Bug A: Guard bare regex with quantity-context check ────
+        #   "I want 3 units" should NOT extract "3" as a price offer.
+        is_quantity_context = bool(QUANTITY_SENTENCE_RE.search(chat_message.message))
         match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
-        if match:
+        if match and not is_quantity_context:
             price = float(match.group(1))
             if price > 0:
                 # ── Full-price guard (fallback path) ───────────
@@ -721,10 +788,33 @@ class NegotiationEngine:
                     rounds_remaining=turn_response.rounds_remaining,
                 )
 
-        # No price found and LLM failed — generic reply
+        # Bug H: No price found and LLM failed — contextual generic reply
+        #   Track the conversation and keep visible state in sync.
+        eng = state.engine_state
+        last_counter = float(current_offer)
+        if eng and eng.counter_history:
+            last_counter = eng.counter_history[-1]
+        qty = session.inventory.requested_quantity
+        total = round(last_counter * qty, 2)
+
+        if qty > 1:
+            generic_reply = (
+                f"Thank you for your interest in {session.product.product_name}! "
+                f"Our current offer is ${last_counter:,.2f} per unit "
+                f"(${total:,.2f} for {qty} units). "
+                f"Feel free to make a specific price offer."
+            )
+        else:
+            generic_reply = (
+                f"Thank you for your interest in {session.product.product_name}! "
+                f"Our current offer is ${last_counter:,.2f} per unit. "
+                f"Feel free to make a specific price offer."
+            )
+        state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+        state.chat_history.append({"role": "Seller", "text": generic_reply})
         return ChatResponse(
             session_id=session_id,
-            message=f"Thank you for your interest in {session.product.product_name}! Our current offer is ${current_offer} per unit. Feel free to make a price offer and we'll see what we can work out.",
+            message=generic_reply,
             has_price_offer=False,
         )
 
@@ -886,15 +976,11 @@ class NegotiationEngine:
         #   Either way, clear and let concession restart from the
         #   correct bulk_target_price.
         if new_qty != old_qty:
-            # Always clear freeze state — the freeze was based on
+            # Always clear firmness state — the firmness was based on
             # old-qty behaviour and doesn't apply after a qty change.
-            eng.final_offer_issued = False
+            eng.firmness_level = 0
             eng.consecutive_stagnant = 0
             eng.retrograde_count = 0
-            eng.good_faith_after_final = 0
-            eng._freeze_low_offer = 0.0
-            eng._freeze_offer_idx = -1
-            eng._post_redemption_round = -1
 
             # Always clear counter and offer history on quantity
             # change (Bug 7 fix) — the deal fundamentally changed.

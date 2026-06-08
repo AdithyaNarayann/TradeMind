@@ -163,7 +163,7 @@ TUNING = {
     # ── Acceptance guards ─────────────────────────────────────
     "min_acceptance_round_max_profit":      3,
     "min_acceptance_round_min_loss":        2,
-    "min_acceptance_ratio_max_profit":      0.86,   # was 0.88
+    "min_acceptance_ratio_max_profit":      0.88,   # Bug C fix: restored from 0.86
     "min_acceptance_ratio_min_loss":        0.78,
 
     # ── Last-round acceptance guard ───────────────────────────
@@ -173,21 +173,17 @@ TUNING = {
     "last_round_min_counter_ratio":         0.90,
 
     # ── Fair-offer proximity (Upgrade 1 — replaces redemption bridge) ─
-    #   If buyer's offer >= this fraction of frozen counter → unfreeze.
-    #   0.96 means the offer must be within 4% of the frozen counter.
-    "fair_offer_proximity_ratio":           0.96,
+    #   If buyer's offer >= this fraction of last counter → firmness instantly = 0.
+    #   0.92 means the offer must be within 8% of the counter.
+    "fair_offer_proximity_ratio":           0.92,
 
-    # Legacy keys kept for backward compatibility:
-    "redemption_bridge_pct":                0.0,
-    "redemption_good_moves":                2,
-    "redemption_cumulative_pct":            0.06,
+    # Legacy keys removed:
+    # "redemption_bridge_pct", "redemption_good_moves", "redemption_cumulative_pct"
+    # "post_redemption_min_rounds"
 
     # ── Counter ratchet (anti-yo-yo) ──────────────────────────
     "ratchet_tighten_factor":               0.15,
     "ratchet_tighten_cap":                  0.03,
-
-    # ── Post-redemption protection ────────────────────────────
-    "post_redemption_min_rounds":           3,
 
     # ── Concession reciprocity (Upgrade 2) ────────────────────
     #   Scales concession based on buyer's latest price movement.
@@ -201,6 +197,12 @@ TUNING = {
     #   multiplier to the concession step.
     "fair_engagement_threshold":            0.88,   # buyer within 12% of counter
     "fair_engagement_bonus":                1.25,   # 25% more generous
+
+    # ── Graduated Firmness (replaces binary freeze) ───────────
+    #   firmness_level 0=normal, 1=cautious, 2=firm, 3=final
+    "firmness_large_move_pct":              0.05,   # buyer move ≥5% of base → firmness -2
+    "firmness_good_move_pct":               0.02,   # buyer move ≥2% of base → firmness -1
+    "firmness_concession_mults":            [1.0, 0.50, 0.15, 0.0],  # per firmness level
 }
 
 
@@ -374,18 +376,17 @@ class NegotiationState:
     offer_history:              list[float]     = field(default_factory=list)
     counter_history:            list[float]     = field(default_factory=list)
 
-    # ── Anti-manipulation counters ────────────────────────────
+    # ── Anti-manipulation / firmness counters ────────────────
     consecutive_stagnant:       int             = field(default=0)
-    retrograde_count:           int             = field(default=0)
+    retrograde_count:           int             = field(default=0)   # logging only
     anchoring_penalty_done:     bool            = field(default=False)
-    final_offer_issued:         bool            = field(default=False)
-    good_faith_after_final:     int             = field(default=0)
     manipulation_events:        int             = field(default=0)
-    _post_redemption_round:     int             = field(default=-1)
-    _freeze_low_offer:          float           = field(default=0.0)
-    _freeze_offer_idx:          int             = field(default=-1)
     zopa_no_overlap_count:      int             = field(default=0)
     scarcity_locked:            bool            = field(default=False)
+
+    # ── Graduated firmness (replaces binary final_offer_issued) ──
+    #   0=normal, 1=cautious, 2=firm, 3=final (no concession)
+    firmness_level:             int             = field(default=0)
 
     # ── Last engine result (set by _build_result for verbalize access) ─
     _last_result:               Optional["EngineResult"] = field(default=None)
@@ -593,7 +594,7 @@ def derive_archetype(session_history: list[dict]) -> BuyerArchetype:
 
 def _determine_phase(s: NegotiationState) -> NegotiationPhase:
     T = TUNING
-    if s.final_offer_issued:
+    if s.firmness_level >= 3:
         return NegotiationPhase.FINAL_OFFER
     progress = s.current_round / s.max_rounds
     anchor_boundary = T["phase_anchor_resist_rounds"] / s.max_rounds
@@ -708,14 +709,6 @@ def _update_bbi(
             # moving, just slowly.  Reset stagnation counter;
             # only exact repeats (improvement == 0) count as stagnant.
             s.consecutive_stagnant = 0
-
-        # F) Track good-faith moves after a final offer freeze.
-        #    Only ≥4% improvements count; anything less resets.
-        if s.final_offer_issued:
-            if improvement >= T["bbi_good_move_threshold"]:
-                s.good_faith_after_final += 1
-            else:
-                s.good_faith_after_final = 0
 
     # C) Tone modifier
     bbi += T["tone_deltas"].get(extraction.get("tone", "neutral"), 0.0)
@@ -887,6 +880,12 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
         if proximity >= T["fair_engagement_threshold"]:
             concession_step *= T["fair_engagement_bonus"]
 
+    # ── Graduated firmness multiplier ─────────────────────────
+    #   Applied AFTER all other multipliers. Replaces the binary
+    #   freeze (old: concession_step = 0 if final_offer_issued).
+    firmness_mult = T["firmness_concession_mults"][min(s.firmness_level, 3)]
+    concession_step *= firmness_mult
+
     concession_per_unit = concession_step / s.quantity
     raw_counter = last_counter - concession_per_unit
     counter_price = round(max(raw_counter, s.dynamic_floor), 2)
@@ -924,36 +923,29 @@ def _should_accept(
         return False
 
     # ── Guard 1: Minimum rounds before acceptance ─────────────
-    #   Waived after a final offer has been issued — we already
-    #   signalled urgency, so accept any above-floor response.
+    #   Waived when firmness is at level 3 (final offer) — we
+    #   already signalled urgency, accept any above-floor response.
     min_round = (
         T["min_acceptance_round_max_profit"]
         if s.mode == "MAX_PROFIT"
         else T["min_acceptance_round_min_loss"]
     )
-    if s.current_round < min_round and not s.final_offer_issued:
+    if s.current_round < min_round and s.firmness_level < 3:
         return False
 
     # ── Guard 2: Minimum offer-to-base ratio ──────────────────
-    #   Also relaxed after final offer: accept at floor ratio.
+    #   Also relaxed at firmness 3: accept at floor ratio.
     offer_ratio = buyer_unit / s.base_price
     min_ratio = (
         T["min_acceptance_ratio_max_profit"]
         if s.mode == "MAX_PROFIT"
         else T["min_acceptance_ratio_min_loss"]
     )
-    if s.final_offer_issued:
-        # After final offer, accept anything above floor
+    if s.firmness_level >= 3:
+        # At firmness 3, accept anything above floor
         min_ratio = s.dynamic_floor / s.base_price
 
-    # Fair engagement relaxation (Upgrade 6): relax ratio by 3%
-    # when buyer is close to our counter.
-    if s.counter_history and not s.final_offer_issued:
-        last_ctr = s.counter_history[-1]
-        current_bid = s.offer_history[-1] if s.offer_history else 0.0
-        eng_proximity = current_bid / last_ctr if last_ctr > 0 else 0
-        if eng_proximity >= T["fair_engagement_threshold"]:
-            min_ratio *= 0.97  # 3% relaxation
+    # Bug C fix: NO fair engagement relaxation — acceptance floor is HARD.
 
     if offer_ratio < min_ratio:
         return False
@@ -1021,14 +1013,14 @@ def _check_manipulation(
     T = TUNING
 
     if (s.consecutive_stagnant >= T["stagnation_rounds_trigger"]
-            and not s.final_offer_issued):
-        s.final_offer_issued = True
+            and s.firmness_level < 3):
+        s.firmness_level = 3
         s.manipulation_events += 1
         return ReasoningTag.STAGNATION_FINAL
 
     if (s.retrograde_count >= T["retrograde_immediate_trigger"]
-            and not s.final_offer_issued):
-        s.final_offer_issued = True
+            and s.firmness_level < 3):
+        s.firmness_level = 3
         s.manipulation_events += 1
         return ReasoningTag.RETROGRADE_FINAL
 
@@ -1129,16 +1121,12 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
         s.dynamic_floor,
     )
 
-    # ── Quantity change: always reset counters and freeze state ──
+    # ── Quantity change: always reset counters and firmness state ──
     #   The deal fundamentally changed — old counters don't reflect
     #   the correct bulk discount for the new quantity (Bug 7 fix).
-    s.final_offer_issued = False
+    s.firmness_level = 0
     s.consecutive_stagnant = 0
     s.retrograde_count = 0
-    s.good_faith_after_final = 0
-    s._post_redemption_round = -1
-    s._freeze_low_offer = 0.0
-    s._freeze_offer_idx = -1
 
     # Always clear on quantity change (Bug 7)
     s.counter_history.clear()
@@ -1163,6 +1151,45 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
     new_budget = max((s.base_price - s.dynamic_floor) * s.quantity, 0.0)
     s.total_concession_budget = new_budget
     s.remaining_concession_budget = new_budget
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GRADUATED FIRMNESS  (replaces binary freeze / final_offer_issued)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _update_firmness(state: NegotiationState, u_price: float) -> None:
+    """
+    Update firmness_level based on buyer's latest move.
+    Called in process_round after offer_history is updated.
+    """
+    if len(state.offer_history) < 2:
+        return  # First offer — no history to compare, firmness stays 0
+
+    prev_offer = state.offer_history[-2]
+    move = u_price - prev_offer
+    move_pct = move / state.base_price if state.base_price > 0 else 0
+
+    T = TUNING
+
+    if move < 0:
+        # Retrograde — buyer went backwards
+        state.firmness_level = min(3, state.firmness_level + 1)
+    elif move == 0:
+        # Stagnation — identical offer
+        state.firmness_level = min(3, state.firmness_level + 1)
+    else:
+        # Buyer moved forward
+        if move_pct >= T["firmness_large_move_pct"]:
+            state.firmness_level = max(0, state.firmness_level - 2)
+        elif move_pct >= T["firmness_good_move_pct"]:
+            state.firmness_level = max(0, state.firmness_level - 1)
+        # Small upward move (< 2% of base): no firmness change
+        # Buyer is grinding, not punished but not rewarded either
+
+    # Proximity override: if buyer is genuinely close, full reset regardless
+    if state.counter_history:
+        last_ctr = state.counter_history[-1]
+        if last_ctr > 0 and u_price >= last_ctr * T["fair_offer_proximity_ratio"]:
+            state.firmness_level = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1220,6 +1247,11 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     state.current_round += 1
     state.offer_history.append(u_price)
 
+    # ── STEP 2.5: Update firmness ─────────────────────────────
+    #   Must run AFTER offer_history is updated, BEFORE any other
+    #   computation.  This is the graduated firmness system.
+    _update_firmness(state, u_price)
+
     # ── STEP 3: Update phase ──────────────────────────────────
     state.phase = _determine_phase(state)
 
@@ -1234,26 +1266,8 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     # ── STEP 5: Update BBI (ALWAYS — tracks buyer behavior) ──
     state.bbi, bbi_tag = _update_bbi(state, extraction)
 
-    # ── STEP 5.5: Fair-offer threshold unfreeze (Upgrade 1) ──────
-    #   If the buyer's current offer is within fair_offer_proximity_ratio
-    #   of the frozen counter, unfreeze and resume normal negotiation.
-    #   No bridge computation or pattern tracking needed.
-    context_redeemed = False
-    if state.final_offer_issued and state.counter_history:
-        frozen_counter = state.counter_history[-1]
-        current_offer = state.offer_history[-1] if state.offer_history else 0.0
-        fair_proximity = TUNING["fair_offer_proximity_ratio"]
-        if current_offer >= frozen_counter * fair_proximity:
-            context_redeemed = True
-
-    if context_redeemed:
-        state.final_offer_issued = False
-        state.consecutive_stagnant = 0
-        # One-strike rule: a single retrograde after unfreeze re-freezes
-        state.retrograde_count = TUNING["retrograde_immediate_trigger"] - 1
-
-        # Re-determine phase now that FINAL_OFFER flag is cleared
-        state.phase = _determine_phase(state)
+    # ── STEP 5.5: Re-determine phase (firmness may have changed) ──
+    state.phase = _determine_phase(state)
 
     # ── STEP 6: Update Bayesian WTP (ALWAYS) ──────────────────
     state.p_high_wtp = _update_wtp(state)
@@ -1270,26 +1284,8 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         last = state.counter_history[-1] if state.counter_history else state.bulk_target_price
         return _build_result(state, "counter", last, manip_tag)
 
-    # ── STEP 7.5: Frozen-counter shortcut ─────────────────────
-    #   When a final offer is active (freeze), skip concession
-    #   computation entirely.  Just hold the counter.  The buyer
-    #   must redeem (STEP 5.5) before normal negotiation resumes.
-    if state.final_offer_issued:
-        last = state.counter_history[-1] if state.counter_history else state.dynamic_floor
-        # Accept if buyer meets or exceeds the frozen counter
-        if u_price >= last:
-            state.counter_history.append(last)
-            return _accept_result(state, u_price, ReasoningTag.UTILITY_ACCEPT)
-        # Last round: reject
-        if state.current_round >= state.max_rounds:
-            state.counter_history.append(last)
-            return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
-        # Hold counter — no concession, no ZOPA, no acceptance
-        state.counter_history.append(last)
-        return _build_result(
-            state, "final_offer", last,
-            bbi_tag or ReasoningTag.RETROGRADE_FINAL,
-        )
+    # ── (STEP 7.5 REMOVED: old frozen-counter shortcut is gone) ──
+    #   Graduated firmness handles concession reduction via multiplier.
 
     # ── STEP 8: ZOPA check ────────────────────────────────────
     #   Only count no-overlap rounds AFTER the anchor-resist phase.
@@ -1303,7 +1299,7 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
             state.zopa_no_overlap_count = 0
 
     if state.zopa_no_overlap_count >= TUNING["zopa_no_overlap_max_rounds"]:
-        state.final_offer_issued = True
+        state.firmness_level = 3
         # Use last counter, not floor — jumping to floor is an
         # unearned gift to the buyer.  Signal firmness by holding
         # at the current negotiation position.
@@ -1382,6 +1378,10 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
 
     state.counter_history.append(counter_price)
 
+    # Track whether concession was effectively zero (for decision type)
+    last_counter_before = state.counter_history[-2] if len(state.counter_history) >= 2 else state.bulk_target_price
+    concession_step_zero = abs(counter_price - last_counter_before) < 0.005
+
     # ── STEP 10.5: Auto-accept if buyer meets or exceeds counter ──
     #   No point countering lower than what the buyer already offered.
     if u_price >= counter_price:
@@ -1400,6 +1400,14 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         final_tag = ReasoningTag.BAYESIAN_HOLD
     else:
         final_tag = bbi_tag or concession_tag
+
+    # ── STEP 12.5: Decision type based on firmness ────────────
+    #   firmness_level == 3 with zero concession → final_offer
+    #   Otherwise → counter
+    if concession_step_zero or state.firmness_level == 3:
+        decision_type = "final_offer"
+    else:
+        decision_type = "counter"
 
     # ── STEP 13: Safety invariants ─────────────────────────────
     #   Use explicit checks (not assert) so they survive python -O.
@@ -1420,4 +1428,4 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
             f"VIOLATION: budget negative {state.remaining_concession_budget:.2f}"
         )
 
-    return _build_result(state, "counter", counter_price, final_tag, buyer_ceiling)
+    return _build_result(state, decision_type, counter_price, final_tag, buyer_ceiling)

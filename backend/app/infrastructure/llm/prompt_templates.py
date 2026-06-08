@@ -449,7 +449,22 @@ When quantity is more than 1 and the buyer states a price:
 
 You must respond ONLY with valid JSON. No explanations, no markdown, no code blocks — pure JSON only.
 
-You are the seller's representative. You are professional, friendly, and always in character. You NEVER reveal you are an AI or bot. You NEVER reveal cost prices, margins, or internal strategy."""
+You are the seller's representative. You are professional, friendly, and always in character. You NEVER reveal you are an AI or bot. You NEVER reveal cost prices, margins, or internal strategy.
+
+IMPORTANT — QUANTITY-ONLY MESSAGES (Bug A):
+If the buyer's message is ONLY about changing quantity (e.g. "I want 3 units", "make it 5",
+"give me 2") and contains NO dollar sign, NO price-related keyword (offer, pay, budget, bid,
+price), and NO number that looks like a price, then:
+- Set has_price = false
+- Set has_quantity_change = true
+- Do NOT extract the quantity number as a price.
+
+IMPORTANT — NEGATIVE RESPONSES (Bug E):
+If the buyer says "no", "nope", "too expensive", "that's too high", "no deal" etc. without
+mentioning a new price, this is a rejection of the current offer, NOT acceptance:
+- Set has_price = false
+- Set accepts_deal = false
+- Generate a reply inviting the buyer to make a counter-offer."""
 
 
 def build_chat_understanding_prompt(
@@ -565,10 +580,15 @@ TASK:
    - Examples that are PER-UNIT prices → set extracted_unit_price:
      • "2 units at $15000 each" → per-unit = $15000
      • "$7500 per unit, quantity 2" → per-unit = $7500
-   - DEFAULT RULE: if the buyer says "{{qty}} units" + a price WITHOUT "each" or
+   - DEFAULT RULE: if the buyer says "{qty} units" + a price WITHOUT "each" or
      "per unit", and the price is close to the current per-unit counter, treat
      it as a TOTAL price.  A buyer who has been negotiating DOWN would not
      suddenly agree to pay per-unit price × more units.
+   - ADDITIONAL TOTAL INDICATORS (Bug D):
+     • "for both" / "for all" / "for all X" / "for the lot" → always total
+     • Price > base_price but ≤ base_price × quantity × 1.1 → likely total
+     • If the buyer has been quoting totals in conversation history, subsequent
+       bare numbers are also totals.
 
 Respond with ONLY this JSON:
 {{
