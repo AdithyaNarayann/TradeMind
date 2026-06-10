@@ -797,7 +797,29 @@ class NegotiationEngine:
         qty = session.inventory.requested_quantity
         total = round(last_counter * qty, 2)
 
-        if qty > 1:
+        # ── Patch 3 Bug D: Session-state questions ─────────────────
+        #   Answer qty/offer/history questions directly from state.
+        msg_lower = chat_message.message.strip().lower()
+        state_question_keywords = [
+            "how many", "quantity", "how much", "current offer",
+            "what's the offer", "last offer", "for how many",
+        ]
+        is_state_question = any(kw in msg_lower for kw in state_question_keywords)
+
+        if is_state_question:
+            if qty > 1:
+                generic_reply = (
+                    f"We're currently at {qty} unit(s) at "
+                    f"${last_counter:,.2f}/unit (${total:,.2f} total). "
+                    f"Would you like to adjust the quantity or make a price offer?"
+                )
+            else:
+                generic_reply = (
+                    f"We're currently at {qty} unit at "
+                    f"${last_counter:,.2f}/unit. "
+                    f"Would you like to adjust the quantity or make a price offer?"
+                )
+        elif qty > 1:
             generic_reply = (
                 f"Thank you for your interest in {session.product.product_name}! "
                 f"Our current offer is ${last_counter:,.2f} per unit "

@@ -586,9 +586,30 @@ TASK:
      suddenly agree to pay per-unit price × more units.
    - ADDITIONAL TOTAL INDICATORS (Bug D):
      • "for both" / "for all" / "for all X" / "for the lot" → always total
+     • "total for X" → total_price_offered=X (Patch 3 Bug C)
      • Price > base_price but ≤ base_price × quantity × 1.1 → likely total
      • If the buyer has been quoting totals in conversation history, subsequent
        bare numbers are also totals.
+
+7. TOTAL PRICE EXTRACTION PATTERNS:
+   "X for N units"     → total_price_offered=X, quantity=N, unit_price=X/N
+   "total of X"        → total_price_offered=X
+   "X total"           → total_price_offered=X
+   "total for X"       → total_price_offered=X
+   "X for all of them" → total_price_offered=X
+   "X for everything"  → total_price_offered=X
+   When total_price_offered is extracted, always compute unit_price = total / known_quantity.
+   Set has_price=true with the computed unit_price.
+
+8. CONVERSATIONAL INTENT examples (no price extraction, just reply):
+   "for how many units?"       → conversational (asking current qty)
+   "what quantity are we at?"  → conversational
+   "how many are we talking?"  → conversational
+   "what's the current offer?" → conversational (asking current counter)
+   "why should I buy this?"    → conversational (value question)
+   "what was my last offer?"   → conversational (history question)
+   For these, set has_price=false, has_quantity_change=false, accepts_deal=false,
+   and generate a helpful reply answering the question from the negotiation context.
 
 Respond with ONLY this JSON:
 {{

@@ -1,39 +1,38 @@
-# TradeMind Patch 2 — Refactor Progress
+# TradeMind Patch 3 — Refactor Progress
 
 **Status:** ✅ Complete  
-**Last updated:** 2026-06-08T15:30 — all files complete  
+**Last updated:** 2026-06-10T10:55
 
 ## Files
 
-| File | Status | Bugs/Upgrades Covered |
-|------|--------|----------------------|
-| negotiation_engine.py | ✅ Done | Graduated firmness, Bug C, TUNING |
-| engine.py | ✅ Done | Bug A, Bug B, Bug E, Bug F, Bug H |
-| pricing_agent.py | ✅ Done | Bug F fallback, verbalize firmness context |
-| prompt_templates.py | ✅ Done | Bug A extraction, Bug D total price, Bug E negative |
+| File | Status | Changes |
+|------|--------|---------|
+| negotiation_engine.py | ✅ Done | Part 1 (proximity gate), Part 3 (acceptance hardening), _last_buyer_message |
+| pricing_agent.py | ✅ Done | Part 2 (verbalize enrichment, new system prompt), Bug C (total for X), Bug D (conversational) |
+| llm_validator.py | ✅ Done | Part 2 Fix 1 (price tolerance 0.01→1.00) |
+| prompt_templates.py | ✅ Done | Bug C (total for X patterns), Bug D (conversational intent) |
+| engine.py | ✅ Done | Bug D (session-state question handler) |
 
 ## Tasks
 
 - [x] Create refactor_progress.md
 - [x] Write negotiation_engine.py
-- [x] Write engine.py
 - [x] Write pricing_agent.py
+- [x] Write llm_validator.py
 - [x] Write prompt_templates.py
+- [x] Write engine.py (Bug D)
 - [x] Write completion summary
 
 ## Completion Summary
 
-### Per-Bug/Upgrade Summary
-
-| Bug/Upgrade | What was implemented | Where |
-|-------------|---------------------|-------|
-| **Part 1: Graduated Firmness** | Replaced `final_offer_issued: bool` with `firmness_level: int` (0-3). New `_update_firmness()` function. Firmness multipliers `[1.0, 0.50, 0.15, 0.0]` gate concession. | `negotiation_engine.py` |
-| **Bug A** | `QUANTITY_SENTENCE_RE` guard on bare-regex fallback prevents qty numbers as prices. LLM system prompt tells LLM not to extract qty as price. | `engine.py`, `prompt_templates.py` |
-| **Bug B** | Zombie pending-confirmation cleanup at top of `process_chat()`. If buyer sends non-accept after confirmation prompt, stale context is logged and cleared. | `engine.py` |
-| **Bug C** | Restored `min_acceptance_ratio_max_profit = 0.88` (hard floor). Removed fair-engagement acceptance relaxation. | `negotiation_engine.py` |
-| **Bug D** | Added "ADDITIONAL TOTAL INDICATORS" to LLM prompt: "for both/all/lot" → always total; price > base but ≤ base×qty×1.1 → likely total. | `prompt_templates.py` |
-| **Bug E** | `NEGATIVE_RE` + `BARE_NO_RE` routing in fallback path. "no"/"nope"/"too expensive" → invite new price offer instead of generic reply. LLM system prompt tells LLM to set `accepts_deal=false`. | `engine.py`, `prompt_templates.py` |
-| **Bug F** | Diagnostic `logger.warning()` in `process_turn()` when `_last_result` is None. `_FIRMNESS_FALLBACKS` dict for template fallback. `firmness_level` + `buyer_moving_up` passed to verbalizer prompt. | `engine.py`, `pricing_agent.py` |
-| **Bug G** | Covered by Part 1 (graduated firmness replaces binary freeze). | `negotiation_engine.py` |
-| **Bug H** | Generic no-price fallback reply now uses engine counter history, mentions total for multi-qty, and records exchange in `chat_history`. | `engine.py` |
-| **Firmness in `_apply_quantity_change`** | Replaced `final_offer_issued = False` with `firmness_level = 0`. Removed obsolete freeze fields (`good_faith_after_final`, `_freeze_low_offer`, etc.). | `engine.py` |
+| Bug/Fix | What was implemented | Where |
+|---------|---------------------|-------|
+| **Part 1: Proximity Gate** | Added `proximity_gate_breakpoints` S-curve to TUNING, `_compute_proximity_gate()` function with linear interpolation, applied gate to `base_step` in `_compute_concession()` BEFORE all other multipliers. Removed fair engagement bonus (subsumed by gate). | `negotiation_engine.py` |
+| **Part 2 Fix 1: Validator tolerance** | Changed `_verify_prices()` tolerance from `Decimal("0.01")` to `Decimal("1.00")`. | `llm_validator.py` |
+| **Part 2 Fix 2: Price injection** | Added `exact_counter_str`, `exact_total_str`, `exact_qty` to verbalize context. | `pricing_agent.py` |
+| **Part 2 Fix 3: Verbalize enrichment** | Added `_last_buyer_message` field to `NegotiationState`, stored in `process_round()`. Added `buyer_last_message`, `rounds_remaining`, `budget_exhausted`, `buyer_moving_toward_counter` to verbalize context. | `negotiation_engine.py`, `pricing_agent.py` |
+| **Part 2 Fix 4: Verbalizer system prompt** | Replaced `_VERBALIZER_SYSTEM_PROMPT` with firmness-aware, variety-encouraging version including PRICE ACCURACY RULE. | `pricing_agent.py` |
+| **Part 3 Bug A: Acceptance below min_ratio** | Added ABSOLUTE FLOOR pre-check at very top of `_should_accept()`. Removed old Guard 2 that allowed firmness=3 to relax ratio. Added floor guard to `_accept_result()`. | `negotiation_engine.py` |
+| **Part 3 Bug B: Last-round acceptance** | Relaxed `min_acceptance_round` guard by -1. Inserted STEP 8.5 acceptance check BEFORE round exhaustion in `process_round()`. | `negotiation_engine.py` |
+| **Bug C: "total for X" pattern** | Added "total for X" to total price extraction patterns in `_EXTRACTION_USER_TEMPLATE` and `build_chat_understanding_prompt`. | `pricing_agent.py`, `prompt_templates.py` |
+| **Bug D: Conversational questions** | Added conversational intent examples to both extraction prompts. Added session-state question detector to generic fallback in `engine.py`. | `pricing_agent.py`, `prompt_templates.py`, `engine.py` |

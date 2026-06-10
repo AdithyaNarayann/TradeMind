@@ -12,6 +12,9 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional  
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TUNING — every magic number in the engine lives here
@@ -203,6 +206,20 @@ TUNING = {
     "firmness_large_move_pct":              0.05,   # buyer move ≥5% of base → firmness -2
     "firmness_good_move_pct":               0.02,   # buyer move ≥2% of base → firmness -1
     "firmness_concession_mults":            [1.0, 0.50, 0.15, 0.0],  # per firmness level
+
+    # ── Proximity gate (Patch 3 — concession algorithm redesign) ──
+    #   Maps buyer proximity (offer / counter) to a concession gate
+    #   multiplier.  Linear interpolation between breakpoints.
+    #   Far buyers get near-zero concessions; close buyers get bonuses.
+    "proximity_gate_breakpoints": [
+        (0.00, 0.03),   # buyer < 65% of counter: 3% of normal (near-zero)
+        (0.65, 0.03),   # flat floor zone
+        (0.78, 0.18),   # 65–78%: 18% (small, warming up)
+        (0.87, 0.55),   # 78–87%: 55% (moderate, approaching fair)
+        (0.93, 1.00),   # 87–93%: 100% (normal, fair zone)
+        (0.97, 1.30),   # 93–97%: 130% (generous, closing)
+        (1.01, 1.50),   # 97%+:   150% (push to close)
+    ],
 }
 
 
@@ -390,6 +407,9 @@ class NegotiationState:
 
     # ── Last engine result (set by _build_result for verbalize access) ─
     _last_result:               Optional["EngineResult"] = field(default=None)
+
+    # ── Last buyer message (for verbalize context — Patch 3) ──
+    _last_buyer_message:        Optional[str] = field(default=None)
 
     def __post_init__(self) -> None:
         T = TUNING
@@ -767,10 +787,31 @@ def _update_wtp(s: NegotiationState) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PROXIMITY GATE  (Patch 3 — dominant concession control)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _compute_proximity_gate(proximity: float) -> float:
+    """
+    Maps buyer proximity (offer / current_counter) to a concession gate multiplier.
+    proximity < 0.65 → near-zero (buyer must close the gap)
+    proximity > 0.93 → generous (buyer is close, push to close)
+    Uses linear interpolation between breakpoints.
+    """
+    pts = TUNING["proximity_gate_breakpoints"]
+    for i in range(len(pts) - 1):
+        lo_p, lo_g = pts[i]
+        hi_p, hi_g = pts[i + 1]
+        if lo_p <= proximity <= hi_p:
+            t = (proximity - lo_p) / (hi_p - lo_p) if hi_p != lo_p else 0.0
+            return lo_g + t * (hi_g - lo_g)
+    return pts[-1][1]  # above all breakpoints
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CONCESSION COMPUTATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
+def _compute_concession(s: NegotiationState, u_price: float) -> tuple[float, ReasoningTag]:
     T = TUNING
 
     if s.remaining_concession_budget <= 0:
@@ -839,6 +880,14 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
     else:
         base_step = s.remaining_concession_budget * (round_pressure ** curve_power)
 
+    # ── PROXIMITY GATE — applied to base_step, dominant control ──
+    #   Computed AFTER base_step but BEFORE all other multipliers.
+    #   Far-away buyers get tiny concessions regardless of BBI,
+    #   budget size, or round pressure.
+    proximity = u_price / last_counter if last_counter > 0 else 0.5
+    proximity_gate = _compute_proximity_gate(proximity)
+    base_step_gated = base_step * proximity_gate
+
     # ── Reciprocity signal (Upgrade 2) ────────────────────────
     #   Scale concession based on buyer's latest price movement
     #   relative to their previous best offer.
@@ -852,39 +901,26 @@ def _compute_concession(s: NegotiationState) -> tuple[float, ReasoningTag]:
         else:
             reciprocity_mult = T["reciprocity_min"]
 
+    # ── Graduated firmness multiplier ─────────────────────────
+    firmness_mult = T["firmness_concession_mults"][min(s.firmness_level, 3)]
+
     # ── Composite concession step (total across all units) ────
+    #   Uses gated base_step — proximity gate is the dominant control.
     concession_step = (
-        base_step
+        base_step_gated
         * bbi_mult
         * (1.0 / wtp_hold)
         * scarcity_factor
         * historical_factor
         * phase_mult
         * reciprocity_mult
+        * firmness_mult
     )
 
     # ── Per-round concession cap ──────────────────────────────
-    #   Prevents single-round concession dumps (e.g. after redemption
-    #   when budget is large and round_pressure is high).  Uses
-    #   a fraction of remaining budget so it scales with margin.
+    #   Prevents single-round concession dumps.
     max_round = s.remaining_concession_budget * T["max_concession_per_round_budget_pct"]
     concession_step = min(concession_step, max_round)
-
-    # ── Fair engagement bonus (Upgrade 6) ─────────────────────
-    #   If buyer's offer is within 12% of the last counter, they're
-    #   engaging fairly — give a 25% bonus concession.
-    if s.counter_history:
-        last_ctr = s.counter_history[-1]
-        current_bid = s.offer_history[-1] if s.offer_history else 0.0
-        proximity = current_bid / last_ctr if last_ctr > 0 else 0
-        if proximity >= T["fair_engagement_threshold"]:
-            concession_step *= T["fair_engagement_bonus"]
-
-    # ── Graduated firmness multiplier ─────────────────────────
-    #   Applied AFTER all other multipliers. Replaces the binary
-    #   freeze (old: concession_step = 0 if final_offer_issued).
-    firmness_mult = T["firmness_concession_mults"][min(s.firmness_level, 3)]
-    concession_step *= firmness_mult
 
     concession_per_unit = concession_step / s.quantity
     raw_counter = last_counter - concession_per_unit
@@ -918,6 +954,19 @@ def _should_accept(
     """
     T = TUNING
 
+    # ── ABSOLUTE FLOOR — runs before everything, no bypass ────
+    #   Patch 3 Bug A: $561/$999 = 56.1% was accepted because
+    #   firmness_level=3 relaxed min_ratio to floor ratio. This
+    #   hard pre-check ensures min_acceptance_ratio is NEVER bypassed.
+    offer_ratio = buyer_unit / s.base_price
+    min_ratio = (
+        T["min_acceptance_ratio_max_profit"]
+        if s.mode == "MAX_PROFIT"
+        else T["min_acceptance_ratio_min_loss"]
+    )
+    if offer_ratio < min_ratio:
+        return False  # Hard stop. No utility model, no budget state, no round can bypass this.
+
     # ── Hard floor ────────────────────────────────────────────
     if buyer_unit < s.dynamic_floor:
         return False
@@ -925,30 +974,21 @@ def _should_accept(
     # ── Guard 1: Minimum rounds before acceptance ─────────────
     #   Waived when firmness is at level 3 (final offer) — we
     #   already signalled urgency, accept any above-floor response.
+    #   Patch 3 Bug B Fix 1: -1 allows acceptance on the final eligible round.
     min_round = (
         T["min_acceptance_round_max_profit"]
         if s.mode == "MAX_PROFIT"
         else T["min_acceptance_round_min_loss"]
     )
-    if s.current_round < min_round and s.firmness_level < 3:
+    if s.current_round < min_round - 1 and s.firmness_level < 3:
         return False
 
-    # ── Guard 2: Minimum offer-to-base ratio ──────────────────
-    #   Also relaxed at firmness 3: accept at floor ratio.
-    offer_ratio = buyer_unit / s.base_price
-    min_ratio = (
-        T["min_acceptance_ratio_max_profit"]
-        if s.mode == "MAX_PROFIT"
-        else T["min_acceptance_ratio_min_loss"]
-    )
-    if s.firmness_level >= 3:
-        # At firmness 3, accept anything above floor
-        min_ratio = s.dynamic_floor / s.base_price
 
-    # Bug C fix: NO fair engagement relaxation — acceptance floor is HARD.
+    # (Guard 2 removed — the ABSOLUTE FLOOR pre-check at the top
+    #  of this function now handles min_ratio unconditionally.
+    #  The old Guard 2 allowed firmness=3 to relax the ratio,
+    #  which caused Patch 3 Bug A.)
 
-    if offer_ratio < min_ratio:
-        return False
 
     # ── Probability of buyer improving ────────────────────────
     rounds_left = s.max_rounds - s.current_round
@@ -1077,6 +1117,12 @@ def _accept_result(
     price: float,
     tag: ReasoningTag,
 ) -> EngineResult:
+    # Patch 3: Floor guard — should never be reached, but if it is,
+    # log and return a final-offer counter at the floor instead of accepting.
+    if price < s.dynamic_floor - 0.01:
+        logger.error("accept_below_floor_guard_fired", price=price, floor=s.dynamic_floor)
+        s.firmness_level = 3
+        return _build_result(s, "counter", s.dynamic_floor, ReasoningTag.BELOW_FLOOR_REJECT)
     return _build_result(s, "accept", price, tag)
 
 
@@ -1247,6 +1293,10 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     state.current_round += 1
     state.offer_history.append(u_price)
 
+    # Store buyer's raw message for verbalize context (Patch 3)
+    if extraction.get("raw_message"):
+        state._last_buyer_message = extraction["raw_message"]
+
     # ── STEP 2.5: Update firmness ─────────────────────────────
     #   Must run AFTER offer_history is updated, BEFORE any other
     #   computation.  This is the graduated firmness system.
@@ -1314,6 +1364,15 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
             ReasoningTag.ZOPA_NO_OVERLAP, buyer_ceiling,
         )
 
+    # ── STEP 8.5: Acceptance check (before round exhaustion) ───
+    #   Patch 3 Bug B Fix 2: run acceptance BEFORE max-rounds
+    #   termination so valid last-round offers aren't auto-rejected.
+    if u_price >= state.dynamic_floor and _should_accept(
+        state, u_price,
+        state.counter_history[-1] if state.counter_history else state.bulk_target_price,
+    ):
+        return _accept_result(state, u_price, ReasoningTag.UTILITY_ACCEPT)
+
     # ── STEP 9: Last round ───────────────────────────────────
     #   Accept only if the offer is close to the last counter.
     #   Blindly accepting anything above floor lets a buyer who
@@ -1333,7 +1392,7 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     #   _compute_concession always clamps at dynamic_floor,
     #   so below-floor offers naturally produce a high counter
     #   from the concession curve rather than jumping to floor.
-    counter_price, concession_tag = _compute_concession(state)
+    counter_price, concession_tag = _compute_concession(state, u_price)
 
     # ── STEP 10.1: Counter ratchet — never reward retrograde ──
     #   Rule 1: If buyer went BELOW their previous offer or is at/

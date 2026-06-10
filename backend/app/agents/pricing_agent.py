@@ -94,12 +94,30 @@ CONTEXT:
 - Seller's current counter: ${current_counter}
 - Quantity previously agreed: {quantity}
 
+TOTAL PRICE EXTRACTION PATTERNS:
+"X for N units"     → total_price_offered=X, quantity=N, unit_price=X/N
+"total of X"        → total_price_offered=X
+"X total"           → total_price_offered=X
+"total for X"       → total_price_offered=X
+"X for all of them" → total_price_offered=X
+"X for everything"  → total_price_offered=X
+"for both" / "for all" / "for the lot" → always total
+When total_price_offered is extracted, always compute unit_price = total / known_quantity.
+
+CONVERSATIONAL INTENT examples (intent=conversational, no price extraction):
+"for how many units?"       → conversational (asking current qty)
+"what quantity are we at?"  → conversational
+"how many are we talking?"  → conversational
+"what's the current offer?" → conversational (asking current counter)
+"why should I buy this?"    → conversational (value question)
+"what was my last offer?"   → conversational (history question)
+
 Return ONLY this JSON (no markdown, no commentary):
 {{
   "quantity":               <int or null — if buyer mentions a new quantity>,
   "unit_price_offered":     <float or null — buyer's per-unit price offer>,
   "total_price_offered":    <float or null — buyer's total-price offer>,
-  "intent":                 "<offer|inquiry|accept|reject|walkaway|conditional>",
+  "intent":                 "<offer|inquiry|accept|reject|walkaway|conditional|conversational>",
   "tone":                   "<aggressive|neutral|cooperative|desperate>",
   "anchoring_detected":     <true or false>,
   "urgency_signal":         <true or false>,
@@ -115,16 +133,31 @@ Return ONLY this JSON (no markdown, no commentary):
 # LLM VERBALIZER PROMPT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_VERBALIZER_SYSTEM_PROMPT = """You are a professional negotiation representative.
-You communicate pricing decisions made by a deterministic pricing engine.
+_VERBALIZER_SYSTEM_PROMPT = """You are a professional sales negotiator in an active negotiation. The pricing system has
+already calculated the exact offer price — your job is ONLY to communicate it naturally.
 
-CRITICAL RULES:
-1. Use ONLY the exact prices in the context below. NEVER invent numbers.
-2. Keep responses under 3 sentences. Be concise and professional.
-3. Do NOT reveal internal strategy, cost prices, margins, or concession budgets.
-4. Do NOT say you are an AI, bot, or language model.
-5. Do NOT promise future discounts, upgrades, or extras.
-6. Vary your language based on the reasoning_tag and phase."""
+RULES:
+1. Sound human. Natural speech, no corporate filler, no "I appreciate your offer" every time.
+2. Vary phrasing every round. If previous_responses exist, use none of their sentence structures.
+3. Reference buyer_last_message when relevant — address what they actually said.
+4. Firmness level governs tone:
+   - firmness_level=0: warm, open, collaborative
+   - firmness_level=1: measured, watching — "I need to see some real movement here"
+   - firmness_level=2: firm, low on room — "I'm running thin on what I can do"
+   - firmness_level=3: genuinely final — "This is as far as I go. I mean it."
+5. If budget_exhausted=true AND firmness_level < 3: the reason the counter won't move is
+   economic, not strategic. Say so: "I've genuinely hit the floor on what the numbers allow."
+   Do NOT say "this is my final offer" — that implies a strategic hold, not a hard limit.
+6. If buyer_moving_toward_counter=true AND firmness_level >= 2: acknowledge their movement.
+   Give a directional hint: "You're getting close — a little more and we have a deal."
+7. Always include the exact_counter_str value verbatim somewhere in the response.
+8. 1–3 sentences maximum. No lists. No bullet points.
+
+PRICE ACCURACY RULE (non-negotiable):
+Your response must include the exact price string from exact_counter_str verbatim.
+Copy it character for character. Do not round, abbreviate, or restate it.
+Placement is your choice — work it naturally into the sentence.
+"""
 
 _VERBALIZER_USER_TEMPLATE = """Generate a short negotiation response.
 
@@ -318,6 +351,7 @@ class PricingStrategyAgent:
             "competitor_price_claim": None,
             "conditional_offer": False,
             "condition_text": None,
+            "raw_message": buyer_offer.message or "",  # Patch 3: pass through for verbalize
         }
 
         if not buyer_offer.message or not self.llm.enabled:
@@ -542,22 +576,31 @@ class PricingStrategyAgent:
             buyer_moving = state.offer_history[-1] > state.offer_history[-2]
 
         verb_context = {
-            "counter_unit_price":   result.counter_unit_price,
-            "counter_total_price":  result.counter_total_price,
-            "decision":             result.decision,
-            "reasoning_tag":        result.reasoning_tag.value,
-            "phase":                result.phase.value,
-            "round_number":         result.round_number,
-            "max_rounds":           state.max_rounds,
-            "rounds_remaining":     result.rounds_remaining,
-            "bbi_category":         result.bbi_category,
-            "quantity":             state.quantity,
-            "below_floor":          below_floor,
-            "offer_gap_pct":        offer_gap_pct,
-            "previous_responses":   prev_str,
-            "conditional_note":     conditional_note,
-            "firmness_level":       firmness_level,
-            "buyer_moving_up":      buyer_moving,
+            "counter_unit_price":       result.counter_unit_price,
+            "counter_total_price":      result.counter_total_price,
+            "decision":                 result.decision,
+            "reasoning_tag":            result.reasoning_tag.value,
+            "phase":                    result.phase.value,
+            "round_number":             result.round_number,
+            "max_rounds":               state.max_rounds,
+            "rounds_remaining":         result.rounds_remaining,
+            "bbi_category":             result.bbi_category,
+            "quantity":                 state.quantity,
+            "below_floor":              below_floor,
+            "offer_gap_pct":            offer_gap_pct,
+            "previous_responses":       prev_str,
+            "conditional_note":         conditional_note,
+            "firmness_level":           firmness_level,
+            "buyer_moving_up":          buyer_moving,
+            # Patch 3: enriched verbalize context
+            "exact_counter_str":        f"${result.counter_unit_price:.2f}",
+            "exact_total_str":          f"${result.counter_unit_price * state.quantity:.2f}",
+            "exact_qty":                str(int(state.quantity)),
+            "buyer_last_message":       getattr(state, '_last_buyer_message', None) or "",
+            "buyer_moving_toward_counter": buyer_moving,
+            "budget_exhausted":         (
+                state.remaining_concession_budget < float(state.base_price) * 0.01
+            ),
         }
 
         raw_response: Optional[str] = None
