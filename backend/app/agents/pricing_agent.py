@@ -531,9 +531,9 @@ class PricingStrategyAgent:
             # Skip numbers too small to be prices (round numbers, quantities)
             if value < 20.0:
                 return match.group(0)
-            if abs(value - counter_unit_price) <= 0.01:
+            if abs(value - counter_unit_price) <= 1.00:
                 return match.group(0)
-            if abs(value - counter_total_price) <= 0.01:
+            if abs(value - counter_total_price) <= 1.00:
                 return match.group(0)
             # Divergent price — replace with unit price
             prefix = "$" if match.group(0).startswith("$") else ""
@@ -607,7 +607,18 @@ class PricingStrategyAgent:
 
         if self.llm.enabled:
             try:
-                prompt = _VERBALIZER_USER_TEMPLATE.format(**verb_context)
+                # Escape any curly braces in previous_responses before formatting.
+                # If a prior LLM response contained "{" or "}" (e.g. JSON snippets,
+                # quantity references like "{5 units}"), Python's str.format() would
+                # try to interpret them as format fields and raise KeyError, causing
+                # every subsequent round to silently fall back to templates.
+                safe_ctx = dict(verb_context)
+                safe_ctx["previous_responses"] = (
+                    safe_ctx.get("previous_responses", "(none yet)")
+                    .replace("{", "(")
+                    .replace("}", ")")
+                )
+                prompt = _VERBALIZER_USER_TEMPLATE.format(**safe_ctx)
                 llm_result = self.llm.generate_sync(
                     system_prompt=_VERBALIZER_SYSTEM_PROMPT,
                     user_prompt=prompt,
@@ -615,8 +626,21 @@ class PricingStrategyAgent:
                 )
                 if llm_result.success and len(llm_result.content.strip()) > 10:
                     raw_response = llm_result.content.strip()
+                else:
+                    logger.warning(
+                        "verbalizer_llm_no_content",
+                        success=llm_result.success,
+                        error=llm_result.error,
+                        content_len=len(llm_result.content.strip()),
+                        round=verb_context.get("round_number"),
+                    )
             except Exception as e:
-                logger.warning("verbalizer_llm_failed", error=str(e))
+                logger.warning(
+                    "verbalizer_format_error",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    round=verb_context.get("round_number"),
+                )
 
         if raw_response is None:
             raw_response = self._template_fallback(verb_context)

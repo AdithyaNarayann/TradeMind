@@ -220,6 +220,15 @@ TUNING = {
         (0.97, 1.30),   # 93–97%: 130% (generous, closing)
         (1.01, 1.50),   # 97%+:   150% (push to close)
     ],
+    # ── Buyer-movement caps (Patch 4 — prevents the grind/acceleration exploit) ──
+    # These work together to prevent a buyer grinding $1 increments from collecting
+    # large drops caused by remaining_budget × round_pressure^2.2 acceleration.
+    # max_gap_closure_pct: bot closes at most this fraction of the INITIAL gap
+    #   per round. Constant through the session — captures opening-offer fairness.
+    # seller_reciprocity_multiplier: bot moves at most N× the buyer's move this round.
+    #   Applied when buyer has a positive move vs their previous best.
+    "max_gap_closure_pct":           0.08,   # 8% of initial gap = max drop per round
+    "seller_reciprocity_multiplier": 3.0,    # bot concedes at most 3× buyer's move
 }
 
 
@@ -921,6 +930,40 @@ def _compute_concession(s: NegotiationState, u_price: float) -> tuple[float, Rea
     #   Prevents single-round concession dumps.
     max_round = s.remaining_concession_budget * T["max_concession_per_round_budget_pct"]
     concession_step = min(concession_step, max_round)
+
+    # ── Gap-proportional and buyer-proportional caps ──────────────────────
+    # Cap A — initial gap ceiling:
+    #   Bot closes at most max_gap_closure_pct of the buyer's starting gap.
+    #   Uses the distance from first offer to bulk_target_price.
+    #   Stays constant throughout the session regardless of how much the
+    #   counter has moved. This is what prevents acceleration in late rounds.
+    #
+    # Cap B — buyer reciprocity ceiling:
+    #   Bot moves at most seller_reciprocity_multiplier × buyer's move this round.
+    #   If buyer moved $1, bot can drop at most $3 (with multiplier=3.0).
+    #   Skipped on round 1 (no prior offer to compare) and on retrograde moves
+    #   (firmness system handles those separately).
+    initial_gap_total = (
+        (s.base_price - s.offer_history[0]) * s.quantity
+        if s.offer_history
+        else (last_counter - u_price) * s.quantity
+    )
+    if initial_gap_total > 0:
+        max_by_gap = initial_gap_total * T["max_gap_closure_pct"]
+        concession_step = min(concession_step, max_by_gap)
+
+        if len(s.offer_history) >= 2:
+            buyer_prev_best = max(s.offer_history[:-1])
+            buyer_move_this_round = u_price - buyer_prev_best
+            if buyer_move_this_round > 0:
+                max_by_buyer = (
+                    buyer_move_this_round
+                    * s.quantity
+                    * T["seller_reciprocity_multiplier"]
+                )
+                concession_step = min(concession_step, max_by_buyer)
+            # buyer_move_this_round <= 0: retrograde/stagnation,
+            # handled by firmness_mult already applied above
 
     concession_per_unit = concession_step / s.quantity
     raw_counter = last_counter - concession_per_unit
