@@ -140,3 +140,46 @@ def test_llm_quantity_plus_real_price_is_preserved():
     assert response.extracted_price == Decimal("45.0")
     assert session.inventory.requested_quantity == 4
     assert session.pricing_state.current_round == 1
+
+
+def test_bare_number_misread_as_quantity_is_corrected():
+    engine = _engine_without_llm()
+    engine.llm.enabled = True
+    created = engine.create_session(_session_request(quantity=1))
+
+    # Mock the LLM to return quantity = 40, has_price = False
+    def fake_understand(*_args, **_kwargs):
+        return (False, None, None, None, True, 40, False)
+
+    engine._understand_chat = fake_understand
+    response = engine.process_chat(created.session_id, ChatMessage(message="40"))
+
+    session = engine.session_manager.get_session(created.session_id)
+    # The safety override should see that "40" is a bare number,
+    # so it overrides has_qty_change = False, new_qty = None, has_price = True, unit_price = 40.0.
+    assert response.has_price_offer is True
+    assert response.extracted_price == Decimal("40.0")
+    assert session.inventory.requested_quantity == 1
+    assert session.pricing_state.current_round == 1
+
+
+def test_bare_number_total_price_corrected_for_qty_gt_1():
+    engine = _engine_without_llm()
+    engine.llm.enabled = True
+    created = engine.create_session(_session_request(quantity=5))
+
+    # Mock the LLM to return quantity = 150, has_price = False
+    def fake_understand(*_args, **_kwargs):
+        return (False, None, None, None, True, 150, False)
+
+    engine._understand_chat = fake_understand
+    response = engine.process_chat(created.session_id, ChatMessage(message="150"))
+
+    session = engine.session_manager.get_session(created.session_id)
+    # The safety override should see "150" is a bare number,
+    # and since 150 > 50 * 1.2, it treats it as a total price of 150.0.
+    # Therefore, unit price is 150 / 5 = 30.0.
+    assert response.has_price_offer is True
+    assert response.extracted_price == Decimal("30.0")
+    assert session.inventory.requested_quantity == 5
+    assert session.pricing_state.current_round == 1

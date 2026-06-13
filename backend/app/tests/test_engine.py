@@ -2268,3 +2268,43 @@ class TestPromptTemplateNoNameError:
         )
         assert isinstance(prompt, str)
         assert "Widget" in prompt
+
+
+class TestGrinderManipulation:
+    """Verify that grinder (micro-increment) tactics are detected and suppressed."""
+
+    def test_consecutive_grind_increases_firmness(self):
+        state = _make_state(
+            base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=10,
+        )
+        # R1: normal first offer
+        process_round(state, _make_extraction(unit_price_offered=50.0))
+        assert state.firmness_level == 0
+
+        # R2: micro-move $50.50 (+0.5% of base) -> consecutive_grind = 1, firmness = 0
+        process_round(state, _make_extraction(unit_price_offered=50.50))
+        assert state.consecutive_grind == 1
+        assert state.firmness_level == 0
+
+        # R3: micro-move $51.00 (+0.5% of base) -> consecutive_grind = 2 -> triggers firmness increase!
+        process_round(state, _make_extraction(unit_price_offered=51.00))
+        assert state.consecutive_grind == 2
+        assert state.firmness_level > 0
+
+    def test_reciprocity_multiplier_scales_down_for_micro_moves(self):
+        state = _make_state(
+            base_price=100.0, cost_price=50.0, min_floor=55.0, max_rounds=10,
+        )
+        # R1: normal first offer
+        r1 = process_round(state, _make_extraction(unit_price_offered=80.0))
+        
+        # R2: micro-move of $0.10 (+0.1% of base)
+        r2 = process_round(state, _make_extraction(unit_price_offered=80.10))
+        
+        # Bot concession should be restricted by the scaled reciprocity multiplier.
+        # Since buyer move is $0.10, the scaled multiplier is tiny, so bot concession
+        # must be extremely small, keeping counter_unit_price close to the original counter.
+        concession = r1.counter_unit_price - r2.counter_unit_price
+        assert concession <= 0.10, (
+            f"Bot conceded {concession:.2f} on a $0.10 buyer move — should be damped."
+        )

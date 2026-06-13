@@ -416,6 +416,30 @@ class NegotiationEngine:
                 extracted = self._understand_chat(chat_message.message, session, current_offer, history_str)
                 if extracted is not None:
                     has_price, unit_price, total_price, reply, has_qty_change, new_qty, accepts_deal = extracted
+                    # Safety Override: Pure numeric messages are always prices, never quantities.
+                    msg_stripped = chat_message.message.strip()
+                    bare_num_match = re.match(r'^\s*[$]?\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*[$]?\s*$', msg_stripped)
+                    if bare_num_match:
+                        try:
+                            val = float(bare_num_match.group(1).replace(',', ''))
+                            if val > 0:
+                                has_qty_change = False
+                                new_qty = None
+                                has_price = True
+                                accepts_deal = False
+                                reply = None
+                                if unit_price is None and total_price is None:
+                                    qty = session.inventory.requested_quantity
+                                    base_p = float(session.product.base_price)
+                                    if qty > 1 and val > base_p * 1.2:
+                                        total_price = val
+                                        unit_price = None
+                                    else:
+                                        unit_price = val
+                                        total_price = None
+                        except ValueError:
+                            pass
+
                     fallback_qty = self._extract_quantity_fallback(chat_message.message)
                     fallback_price = self._extract_explicit_price_fallback(chat_message.message)
                     extracted_prices = [
@@ -727,6 +751,23 @@ class NegotiationEngine:
         fallback_qty = self._extract_quantity_fallback(chat_message.message)
         fallback_price = self._extract_explicit_price_fallback(chat_message.message)
 
+        # Safety Override: Pure numeric messages are always prices, never quantities.
+        msg_stripped_fb = chat_message.message.strip()
+        bare_num_match_fb = re.match(r'^\s*[$]?\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*[$]?\s*$', msg_stripped_fb)
+        if bare_num_match_fb:
+            try:
+                val = float(bare_num_match_fb.group(1).replace(',', ''))
+                if val > 0:
+                    fallback_qty = None
+                    qty = session.inventory.requested_quantity
+                    base_p = float(session.product.base_price)
+                    if qty > 1 and val > base_p * 1.2:
+                        fallback_price = val / qty
+                    else:
+                        fallback_price = val
+            except ValueError:
+                pass
+
         if fallback_qty is not None:
             if fallback_qty > session.inventory.available_quantity:
                 return self._quantity_exceeded_response(session_id, session, chat_message, fallback_qty)
@@ -762,6 +803,45 @@ class NegotiationEngine:
                 message=turn_response.message,
                 has_price_offer=True,
                 extracted_price=Decimal(str(fallback_price)),
+                round_number=turn_response.round_number,
+                status=turn_response.status,
+                pricing=turn_response.pricing,
+                can_continue=turn_response.can_continue,
+                rounds_remaining=turn_response.rounds_remaining,
+            )
+
+        if fallback_price is not None:
+            price = fallback_price
+            base = float(session.product.base_price)
+            if price > base:
+                qty = session.inventory.requested_quantity
+                total = round(base * qty, 2)
+                confirm_msg = (
+                    f"{_FULL_PRICE_CONFIRM_MARKER} "
+                    f"That's ${base:,.2f} per unit for {qty} unit(s), "
+                    f"totaling ${total:,.2f}. "
+                    f"Would you like to proceed at full price, or make a different offer? "
+                    f"{_CONFIRM_MARKER}"
+                )
+                state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                state.chat_history.append({"role": "Seller", "text": confirm_msg})
+                return ChatResponse(
+                    session_id=session_id,
+                    message=confirm_msg,
+                    has_price_offer=False,
+                )
+            buyer_offer = BuyerOffer(
+                offered_price=Decimal(str(price)),
+                message=chat_message.message,
+            )
+            state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+            turn_response = self.process_turn(session_id, buyer_offer)
+            state.chat_history.append({"role": "Seller", "text": turn_response.message})
+            return ChatResponse(
+                session_id=session_id,
+                message=turn_response.message,
+                has_price_offer=True,
+                extracted_price=Decimal(str(price)),
                 round_number=turn_response.round_number,
                 status=turn_response.status,
                 pricing=turn_response.pricing,

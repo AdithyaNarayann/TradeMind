@@ -404,6 +404,7 @@ class NegotiationState:
 
     # ── Anti-manipulation / firmness counters ────────────────
     consecutive_stagnant:       int             = field(default=0)
+    consecutive_grind:          int             = field(default=0)
     retrograde_count:           int             = field(default=0)   # logging only
     anchoring_penalty_done:     bool            = field(default=False)
     manipulation_events:        int             = field(default=0)
@@ -1005,14 +1006,23 @@ def _compute_concession(s: NegotiationState, u_price: Optional[float] = None) ->
 
         if len(s.offer_history) >= 2:
             buyer_prev_best = max(s.offer_history[:-1])
-            fair_threshold = last_counter * T.get("fair_engagement_threshold", 0.88)
-            effective_prev_best = max(buyer_prev_best, fair_threshold)
-            buyer_move_this_round = u_price - effective_prev_best
+            buyer_move_this_round = u_price - buyer_prev_best
             if buyer_move_this_round > 0:
+                move_pct = buyer_move_this_round / s.base_price if s.base_price > 0 else 0.0
+                good_move_pct = T.get("firmness_good_move_pct", 0.02)
+                
+                # Scale the reciprocity multiplier down for micro-moves (grinding)
+                if move_pct < good_move_pct:
+                    # Scale factor goes from 1.0 (at good_move_pct) down to 0.15 (at 0)
+                    scale_factor = 0.15 + 0.85 * (move_pct / good_move_pct)
+                else:
+                    scale_factor = 1.0
+                    
+                recip_mult = T["seller_reciprocity_multiplier"] * scale_factor
                 max_by_buyer = (
                     buyer_move_this_round
                     * s.quantity
-                    * T["seller_reciprocity_multiplier"]
+                    * recip_mult
                 )
                 concession_step = min(concession_step, max_by_buyer)
             # buyer_move_this_round <= 0: retrograde/stagnation,
@@ -1272,6 +1282,7 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
     #   the correct bulk discount for the new quantity (Bug 7 fix).
     s.firmness_level = 0
     s.consecutive_stagnant = 0
+    s.consecutive_grind = 0
     s.retrograde_count = 0
     s.good_faith_after_final = 0
     s._post_redemption_round = -1
@@ -1329,23 +1340,32 @@ def _update_firmness(state: NegotiationState, u_price: float) -> None:
     if move < 0:
         # Retrograde — buyer went backwards
         state.firmness_level = min(3, state.firmness_level + 1)
+        state.consecutive_grind = 0
     elif move == 0:
         # Stagnation — identical offer
         state.firmness_level = min(3, state.firmness_level + 1)
+        state.consecutive_grind = 0
     else:
         # Buyer moved forward
         if move_pct >= T["firmness_large_move_pct"]:
             state.firmness_level = max(0, state.firmness_level - 2)
+            state.consecutive_grind = 0
         elif move_pct >= T["firmness_good_move_pct"]:
             state.firmness_level = max(0, state.firmness_level - 1)
-        # Small upward move (< 2% of base): no firmness change
-        # Buyer is grinding, not punished but not rewarded either
+            state.consecutive_grind = 0
+        else:
+            # Small upward move (< 2% of base): buyer is grinding
+            state.consecutive_grind += 1
+            if state.consecutive_grind >= T.get("grind_rounds_trigger", 2):
+                state.firmness_level = min(3, state.firmness_level + 1)
+                state.manipulation_events += 1
 
     # Proximity override: if buyer is genuinely close, full reset regardless
     if state.counter_history:
         last_ctr = state.counter_history[-1]
         if last_ctr > 0 and u_price >= last_ctr * T["fair_offer_proximity_ratio"]:
             state.firmness_level = 0
+            state.consecutive_grind = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
