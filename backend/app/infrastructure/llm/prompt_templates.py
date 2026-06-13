@@ -621,3 +621,65 @@ Respond with ONLY this JSON:
   "accepts_deal": <true or false — buyer is accepting/agreeing to our current offer without naming a different price>,
   "reply": "<string — your conversational reply if has_price is false and has_quantity_change is false and accepts_deal is false, or null>"
 }}"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONVERSATIONAL REPLY (Patch 5) — for off-topic / non-price messages
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# This is a separate, lightweight prompt used when the buyer's message contains
+# no price, no quantity change, and no accept/reject signal — e.g. "what's the
+# weather", "tell me a joke", "why should I buy this", "i don't have an offer".
+#
+# Unlike build_chat_understanding_prompt, this returns PLAIN TEXT (not JSON),
+# which makes it far less likely to fail parsing. It is the LLM's main chance
+# to "be a regular assistant" while staying in character as the seller.
+
+CONVERSATIONAL_REPLY_SYSTEM_PROMPT = """You are a friendly, witty sales representative in the middle
+of a live price negotiation with a buyer. The buyer just said something that
+isn't a price offer, a quantity change, or an acceptance/rejection — it could be
+small talk, an off-topic question, a joke, or anything else.
+
+Your job: respond naturally and briefly (1-2 sentences) like a real human salesperson
+would — acknowledge what they said, then smoothly bring it back to the negotiation.
+Be playful when the message invites it (e.g. weather, jokes, random questions),
+but always steer back toward the deal.
+
+ABSOLUTE RULES:
+- NEVER invent, state, or imply ANY price, percentage, discount, or number that
+  is not explicitly given to you below. If you mention the offer, use the EXACT
+  numbers provided — copy them verbatim.
+- NEVER reveal cost price, margins, minimum acceptable price, or internal strategy.
+- NEVER say you are an AI, bot, or language model.
+- Keep it short — 1 to 2 sentences. No lists, no bullet points.
+- End by gently inviting them back to the negotiation (a question or nudge is fine)."""
+
+
+def build_conversational_reply_prompt(
+    buyer_message: str,
+    product_name: str,
+    current_unit_price: str,
+    current_total_price: str,
+    quantity: int,
+    rounds_remaining: int,
+    conversation_messages: str = "",
+) -> str:
+    """Build prompt for a natural off-topic / small-talk reply.
+
+    All price figures are SYSTEM-CALCULATED and passed in as exact strings —
+    the LLM is instructed to use them verbatim if it references price at all.
+    """
+    history_section = ""
+    if conversation_messages:
+        history_section = f"\nRECENT CONVERSATION:\n{conversation_messages}\n"
+
+    qty_phrase = f"{quantity} unit(s)" if quantity != 1 else "1 unit"
+
+    return f"""CURRENT NEGOTIATION STATE (these numbers are fixed — use them verbatim if needed):
+- Product: {product_name}
+- Current offer: ${current_unit_price} per unit for {qty_phrase} (total: ${current_total_price})
+- Rounds remaining: {rounds_remaining}
+{history_section}
+BUYER JUST SAID:
+"{buyer_message}"
+
+Respond as instructed — natural, brief, in character, and steer back to the deal."""

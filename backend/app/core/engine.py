@@ -99,6 +99,15 @@ QUANTITY_SENTENCE_RE = re.compile(
     re.IGNORECASE
 )
 
+# Patch 6: "NUMBER for N units" — bare leading number is a TOTAL price
+# when followed by "for" + a quantity phrase. Narrow on purpose: only
+# matches when the number is at the START of the message, so it can't
+# misfire on unrelated mid-sentence numbers.
+_QTY_CONTEXT_TOTAL_RE = re.compile(
+    r'^\s*\$?\s*(\d+(?:\.\d{1,2})?)\s+for\b',
+    re.IGNORECASE,
+)
+
 # Bug E: Negative response patterns — route to "invite new offer"
 NEGATIVE_RE = re.compile(
     r'^\s*(?:no+pe?|nah|not\s+interested|that\'?s?\s+too\s+(?:high|much|expensive)|'
@@ -617,8 +626,12 @@ class NegotiationEngine:
                     elif has_qty_change and new_qty is not None and new_qty > 0:
                         return self._quantity_update_response(session_id, session, chat_message, new_qty)
                     else:
-                        # Pure conversation — return LLM reply
-                        reply_text = reply or "Could you please make a specific price offer?"
+                        # Pure conversation — prefer the LLM's in-band reply;
+                        # if it's empty, generate a dedicated conversational
+                        # reply (Patch 5) instead of a generic nudge.
+                        reply_text = reply or self._generate_conversational_reply(
+                            chat_message.message, session
+                        ) or "Could you please make a specific price offer?"
                         state.chat_history.append({"role": "Buyer", "text": chat_message.message})
                         state.chat_history.append({"role": "Seller", "text": reply_text})
                         return ChatResponse(
@@ -721,6 +734,19 @@ class NegotiationEngine:
             self._apply_quantity_change(session, fallback_qty)
 
             if fallback_price is None:
+                # Patch 6: "4000 for 5 units" — bare leading number before
+                # "for" is a TOTAL price for the stated quantity, not a
+                # per-unit price. Convert to per-unit before passing on.
+                qty_ctx_match = _QTY_CONTEXT_TOTAL_RE.match(chat_message.message.strip())
+                if qty_ctx_match:
+                    try:
+                        total_candidate = float(qty_ctx_match.group(1))
+                        if total_candidate > 0 and fallback_qty > 0:
+                            fallback_price = total_candidate / fallback_qty
+                    except ValueError:
+                        pass
+
+            if fallback_price is None:
                 return self._quantity_update_response(session_id, session, chat_message, fallback_qty)
 
             state.chat_history.append({"role": "Buyer", "text": chat_message.message})
@@ -796,6 +822,28 @@ class NegotiationEngine:
             last_counter = eng.counter_history[-1]
         qty = session.inventory.requested_quantity
         total = round(last_counter * qty, 2)
+        
+        # ── Patch 5: Try a natural conversational reply first ──────
+        #   For genuinely off-topic messages (weather, jokes, "I don't
+        #   have an offer", etc.) this gives a human, in-character
+        #   response instead of the static "Thank you for your
+        #   interest..." template. Falls through to the templates
+        #   below only if the LLM is disabled or the call fails.
+        msg_lower_p5 = chat_message.message.strip().lower()
+        _state_kw_check = [
+            "how many", "quantity", "how much", "current offer",
+            "what's the offer", "last offer", "for how many",
+        ]
+        if not any(kw in msg_lower_p5 for kw in _state_kw_check):
+            conv_reply = self._generate_conversational_reply(chat_message.message, session)
+            if conv_reply:
+                state.chat_history.append({"role": "Buyer", "text": chat_message.message})
+                state.chat_history.append({"role": "Seller", "text": conv_reply})
+                return ChatResponse(
+                    session_id=session_id,
+                    message=conv_reply,
+                    has_price_offer=False,
+                )
 
         # ── Patch 3 Bug D: Session-state questions ─────────────────
         #   Answer qty/offer/history questions directly from state.
@@ -1077,6 +1125,12 @@ class NegotiationEngine:
         )
 
         if not result.success:
+            logger.warning(
+                "chat_understanding_llm_failed",
+                error=result.error,
+                llm_enabled=self.llm.enabled,
+                model=self.llm.model,
+            )
             return None
 
         try:
@@ -1127,6 +1181,73 @@ class NegotiationEngine:
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("chat_understanding_parse_error", error=str(e))
             return None
+    
+    def _generate_conversational_reply(
+        self,
+        buyer_message: str,
+        session: NegotiationSession,
+    ) -> Optional[str]:
+        """
+        Generate a natural, in-character reply for off-topic / small-talk
+        messages (no price, no quantity change, no accept/reject signal).
+
+        This is intentionally separate from _understand_chat:
+        - Returns plain text, not JSON — far less likely to fail parsing.
+        - All price figures are computed HERE from session state and passed
+          to the LLM as fixed strings. The LLM cannot invent numbers because
+          none are left for it to invent — it can only repeat what's given.
+
+        Returns None if the LLM is disabled or the call fails — caller should
+        fall back to a deterministic template in that case.
+        """
+        if not self.llm.enabled:
+            return None
+
+        state = session.pricing_state
+        eng = state.engine_state if state else None
+
+        last_counter = float(eng.counter_history[-1]) if eng and eng.counter_history else float(session.initial_offer)
+        qty = session.inventory.requested_quantity
+        total = round(last_counter * qty, 2)
+        rounds_remaining = (
+            session.strategy.max_rounds - eng.current_round
+            if eng else session.strategy.max_rounds
+        )
+
+        msg_parts = []
+        for msg in (state.chat_history or [])[-6:]:
+            role = msg.get("role", "")
+            text = msg.get("text", "")
+            msg_parts.append(f"  {role}: {text}")
+        conversation_messages = "\n".join(msg_parts) if msg_parts else ""
+
+        prompt = llm_prompts.build_conversational_reply_prompt(
+            buyer_message=buyer_message,
+            product_name=session.product.product_name,
+            current_unit_price=f"{last_counter:,.2f}",
+            current_total_price=f"{total:,.2f}",
+            quantity=qty,
+            rounds_remaining=max(rounds_remaining, 0),
+            conversation_messages=conversation_messages,
+        )
+
+        try:
+            result = self.llm.generate_sync(
+                system_prompt=llm_prompts.CONVERSATIONAL_REPLY_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                temperature=0.8,
+            )
+            if result.success and len(result.content.strip()) > 5:
+                return result.content.strip()
+            logger.warning(
+                "conversational_reply_no_content",
+                success=result.success,
+                error=result.error,
+            )
+        except Exception as e:
+            logger.warning("conversational_reply_error", error=str(e))
+
+        return None
 
     def get_session(self, session_id: UUID) -> Optional[SessionSummary]:
         """Get session summary by ID."""

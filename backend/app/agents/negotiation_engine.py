@@ -1426,7 +1426,20 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
             if state.counter_history
             else state.bulk_target_price
         )
-        min_accept = last_counter * TUNING["last_round_min_counter_ratio"]
+        # Two independent floors, BOTH must hold:
+        #  1. Buyer must be close to our current counter (existing check)
+        #  2. Buyer must clear the absolute min_acceptance_ratio vs base price
+        #     (Patch 6 — closes the bypass where a heavily-conceded counter
+        #     made min_accept_1 trivially low relative to the original price)
+        min_accept_counter = last_counter * TUNING["last_round_min_counter_ratio"]
+        base_ratio_floor = (
+            TUNING["min_acceptance_ratio_max_profit"]
+            if state.mode == "MAX_PROFIT"
+            else TUNING["min_acceptance_ratio_min_loss"]
+        )
+        min_accept_base = float(state.base_price) * base_ratio_floor
+        min_accept = max(min_accept_counter, min_accept_base)
+
         if u_price >= min_accept:
             return _accept_result(state, u_price, ReasoningTag.LAST_ROUND_ACCEPT)
         return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
