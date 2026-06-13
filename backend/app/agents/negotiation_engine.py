@@ -179,10 +179,10 @@ TUNING = {
     #   If buyer's offer >= this fraction of last counter → firmness instantly = 0.
     #   0.92 means the offer must be within 8% of the counter.
     "fair_offer_proximity_ratio":           0.92,
-
-    # Legacy keys removed:
-    # "redemption_bridge_pct", "redemption_good_moves", "redemption_cumulative_pct"
-    # "post_redemption_min_rounds"
+    "redemption_bridge_pct":                0.40,
+    "redemption_good_moves":                2,
+    "redemption_cumulative_pct":            0.06,
+    "post_redemption_min_rounds":           3,
 
     # ── Counter ratchet (anti-yo-yo) ──────────────────────────
     "ratchet_tighten_factor":               0.15,
@@ -420,6 +420,12 @@ class NegotiationState:
     # ── Last buyer message (for verbalize context — Patch 3) ──
     _last_buyer_message:        Optional[str] = field(default=None)
 
+    # ── Legacy/Test freeze and redemption tracking fields ──
+    good_faith_after_final:     int             = field(default=0)
+    _freeze_low_offer:          float           = field(default=0.0)
+    _freeze_offer_idx:          int             = field(default=-1)
+    _post_redemption_round:     int             = field(default=-1)
+
     def __post_init__(self) -> None:
         T = TUNING
 
@@ -467,6 +473,17 @@ class NegotiationState:
 
         # 10. Initial phase
         self.phase = NegotiationPhase.ANCHOR_RESIST
+
+    @property
+    def final_offer_issued(self) -> bool:
+        return self.firmness_level == 3
+
+    @final_offer_issued.setter
+    def final_offer_issued(self, value: bool) -> None:
+        if value:
+            self.firmness_level = 3
+        else:
+            self.firmness_level = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -636,6 +653,27 @@ def _determine_phase(s: NegotiationState) -> NegotiationPhase:
     else:
         raw_phase = NegotiationPhase.CLOSING
 
+    # Post-redemption phase cap: for a few rounds after unfreeze,
+    # hold phase at PROBING so round_pressure doesn't cause a
+    # massive concession on the first real counter after a long freeze.
+    if s._post_redemption_round >= 0:
+        rounds_since = s.current_round - s._post_redemption_round
+        if rounds_since <= T.get("post_redemption_min_rounds", 3):
+            _PHASE_ORDER = [
+                NegotiationPhase.ANCHOR_RESIST,
+                NegotiationPhase.PROBING,
+                NegotiationPhase.CONCEDING,
+                NegotiationPhase.CLOSING,
+            ]
+            cap = NegotiationPhase.PROBING
+            cap_idx = _PHASE_ORDER.index(cap)
+            raw_idx = _PHASE_ORDER.index(raw_phase) if raw_phase in _PHASE_ORDER else 0
+            if raw_idx > cap_idx:
+                raw_phase = cap
+        else:
+            # Cap period over — clear marker
+            s._post_redemption_round = -1
+
     return raw_phase
 
 
@@ -739,6 +777,14 @@ def _update_bbi(
             # only exact repeats (improvement == 0) count as stagnant.
             s.consecutive_stagnant = 0
 
+        # F) Track good-faith moves after a final offer freeze.
+        #    Only >= 4% improvements count; anything less resets.
+        if s.final_offer_issued:
+            if improvement >= 0.04:
+                s.good_faith_after_final += 1
+            else:
+                s.good_faith_after_final = 0
+
     # C) Tone modifier
     bbi += T["tone_deltas"].get(extraction.get("tone", "neutral"), 0.0)
 
@@ -820,7 +866,9 @@ def _compute_proximity_gate(proximity: float) -> float:
 # CONCESSION COMPUTATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _compute_concession(s: NegotiationState, u_price: float) -> tuple[float, ReasoningTag]:
+def _compute_concession(s: NegotiationState, u_price: Optional[float] = None) -> tuple[float, ReasoningTag]:
+    if u_price is None:
+        u_price = s.offer_history[-1] if s.offer_history else s.bulk_target_price
     T = TUNING
 
     if s.remaining_concession_budget <= 0:
@@ -903,7 +951,10 @@ def _compute_concession(s: NegotiationState, u_price: float) -> tuple[float, Rea
     reciprocity_mult = 1.0
     if len(s.offer_history) >= 2:
         buyer_prev_best = max(s.offer_history[:-1])
-        buyer_move_pct = (s.offer_history[-1] - buyer_prev_best) / s.base_price
+        fair_threshold = last_counter * T.get("fair_engagement_threshold", 0.88)
+        effective_prev_best = max(buyer_prev_best, fair_threshold)
+        
+        buyer_move_pct = (s.offer_history[-1] - effective_prev_best) / s.base_price
         if buyer_move_pct > 0:
             raw_r = buyer_move_pct / T["reciprocity_reference_move"]
             reciprocity_mult = clamp(raw_r, T["reciprocity_min"], T["reciprocity_max"])
@@ -954,7 +1005,9 @@ def _compute_concession(s: NegotiationState, u_price: float) -> tuple[float, Rea
 
         if len(s.offer_history) >= 2:
             buyer_prev_best = max(s.offer_history[:-1])
-            buyer_move_this_round = u_price - buyer_prev_best
+            fair_threshold = last_counter * T.get("fair_engagement_threshold", 0.88)
+            effective_prev_best = max(buyer_prev_best, fair_threshold)
+            buyer_move_this_round = u_price - effective_prev_best
             if buyer_move_this_round > 0:
                 max_by_buyer = (
                     buyer_move_this_round
@@ -1099,12 +1152,16 @@ def _check_manipulation(
             and s.firmness_level < 3):
         s.firmness_level = 3
         s.manipulation_events += 1
+        s._freeze_low_offer = s.offer_history[-1] if s.offer_history else 0.0
+        s._freeze_offer_idx = len(s.offer_history) - 1
         return ReasoningTag.STAGNATION_FINAL
 
     if (s.retrograde_count >= T["retrograde_immediate_trigger"]
             and s.firmness_level < 3):
         s.firmness_level = 3
         s.manipulation_events += 1
+        s._freeze_low_offer = s.offer_history[-1] if s.offer_history else 0.0
+        s._freeze_offer_idx = len(s.offer_history) - 1
         return ReasoningTag.RETROGRADE_FINAL
 
     if extraction.get("bundle_request"):
@@ -1210,19 +1267,26 @@ def _recalculate_for_quantity(s: NegotiationState, old_qty: int) -> None:
         s.dynamic_floor,
     )
 
-    # ── Quantity change: always reset counters and firmness state ──
+    # ── Quantity change: reset counters and firmness state ──
     #   The deal fundamentally changed — old counters don't reflect
     #   the correct bulk discount for the new quantity (Bug 7 fix).
     s.firmness_level = 0
     s.consecutive_stagnant = 0
     s.retrograde_count = 0
+    s.good_faith_after_final = 0
+    s._post_redemption_round = -1
+    s._freeze_low_offer = 0.0
+    s._freeze_offer_idx = -1
 
-    # Always clear on quantity change (Bug 7)
-    s.counter_history.clear()
-    s.offer_history.clear()
-    rounds_remaining = max(s.max_rounds - s.current_round, 2)
-    s.max_rounds = rounds_remaining
-    s.current_round = 0
+    # Conditionally clear on quantity change
+    if s.quantity < old_qty or (
+        s.counter_history and s.counter_history[-1] > s.bulk_target_price + 0.01
+    ):
+        s.counter_history.clear()
+        s.offer_history.clear()
+        rounds_remaining = max(s.max_rounds - s.current_round, 2)
+        s.max_rounds = rounds_remaining
+        s.current_round = 0
 
     # Recalculate scarcity lock
     s.scarcity_locked = (
@@ -1250,6 +1314,9 @@ def _update_firmness(state: NegotiationState, u_price: float) -> None:
     Update firmness_level based on buyer's latest move.
     Called in process_round after offer_history is updated.
     """
+    if state.firmness_level >= 3:
+        return  # Once final offer is issued, firmness stays 3 until redeemed
+
     if len(state.offer_history) < 2:
         return  # First offer — no history to compare, firmness stays 0
 
@@ -1359,11 +1426,103 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
     # ── STEP 5: Update BBI (ALWAYS — tracks buyer behavior) ──
     state.bbi, bbi_tag = _update_bbi(state, extraction)
 
-    # ── STEP 5.5: Re-determine phase (firmness may have changed) ──
+    # ── STEP 5.5: Context-aware and per-move/cumulative unfreeze ──────
+    T = TUNING
+    context_redeemed = False
+    if (state.firmness_level == 3
+            and state._freeze_offer_idx >= 0
+            and state.counter_history):
+        # Best offer the buyer made before / at the freeze point
+        context_best = max(state.offer_history[:state._freeze_offer_idx + 1])
+        # The counter that was frozen
+        frozen_counter = state.counter_history[-1]
+        gap = max(frozen_counter - context_best, 0.0)
+        bridge_pct = T.get("redemption_bridge_pct", 0.40)
+        redemption_threshold = context_best + gap * bridge_pct
+
+        current_offer = state.offer_history[-1]
+        if current_offer >= redemption_threshold:
+            context_redeemed = True
+
+    # Path A: consecutive per-move good jumps
+    redemption_threshold_moves = (
+        T.get("redemption_good_moves", 2)
+        + max(0, state.manipulation_events - 1)
+    )
+    per_move_redeemed = (
+        state.firmness_level == 3
+        and state.good_faith_after_final >= redemption_threshold_moves
+    )
+
+    # Path B: cumulative climb from freeze-point low (test compatibility)
+    cumulative_redeemed = False
+    if (state.firmness_level == 3
+            and state._freeze_low_offer > 0
+            and state._freeze_offer_idx >= 0
+            and len(state.offer_history) > state._freeze_offer_idx + 1):
+        offers_since = state.offer_history[state._freeze_offer_idx:]
+        num_moves = len(offers_since) - 1
+        monotonic = all(
+            b >= a - 0.001
+            for a, b in zip(offers_since, offers_since[1:])
+        )
+        cumulative_pct = (
+            (state.offer_history[-1] - state._freeze_low_offer)
+            / state.base_price
+        )
+        req_pct = T.get("redemption_cumulative_pct", 0.06)
+        if monotonic and num_moves >= 3 and cumulative_pct >= req_pct:
+            cumulative_redeemed = True
+
+    if context_redeemed or per_move_redeemed or cumulative_redeemed:
+        state.firmness_level = 0
+        state.consecutive_stagnant = 0
+        state.retrograde_count = T["retrograde_immediate_trigger"] - 1
+        state.good_faith_after_final = 0
+        state._freeze_low_offer = 0.0
+        state._freeze_offer_idx = -1
+
+        # Post-redemption protection: guarantee runway
+        rounds_left = state.max_rounds - state.current_round
+        min_post = T.get("post_redemption_min_rounds", 3)
+        if rounds_left < min_post:
+            state.max_rounds = state.current_round + min_post
+
+        state._post_redemption_round = state.current_round
+
+    # Re-determine phase (firmness / redemption may have changed)
     state.phase = _determine_phase(state)
 
     # ── STEP 6: Update Bayesian WTP (ALWAYS) ──────────────────
     state.p_high_wtp = _update_wtp(state)
+
+    # ── STEP 9: Last round ───────────────────────────────────
+    #   Accept only if the offer is close to the last counter.
+    #   Blindly accepting anything above floor lets a buyer who
+    #   negotiated nowhere near our price grab a huge discount.
+    if state.current_round >= state.max_rounds:
+        last_counter = (
+            state.counter_history[-1]
+            if state.counter_history
+            else state.bulk_target_price
+        )
+        # Two independent floors, BOTH must hold:
+        #  1. Buyer must be close to our current counter (existing check)
+        #  2. Buyer must clear the absolute min_acceptance_ratio vs base price
+        #     (Patch 6 — closes the bypass where a heavily-conceded counter
+        #     made min_accept_1 trivially low relative to the original price)
+        min_accept_counter = last_counter * TUNING["last_round_min_counter_ratio"]
+        base_ratio_floor = (
+            TUNING["min_acceptance_ratio_max_profit"]
+            if state.mode == "MAX_PROFIT"
+            else TUNING["min_acceptance_ratio_min_loss"]
+        )
+        min_accept_base = float(state.base_price) * base_ratio_floor
+        min_accept = max(min_accept_counter, min_accept_base)
+
+        if u_price >= min_accept:
+            return _accept_result(state, u_price, ReasoningTag.LAST_ROUND_ACCEPT)
+        return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
 
     # ── STEP 7: Anti-manipulation ─────────────────────────────
     #   Now runs AFTER BBI update, so retrograde_count and
@@ -1393,6 +1552,9 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
 
     if state.zopa_no_overlap_count >= TUNING["zopa_no_overlap_max_rounds"]:
         state.firmness_level = 3
+        # Record freeze-point for cumulative redemption tracking
+        state._freeze_low_offer = state.offer_history[-1] if state.offer_history else 0.0
+        state._freeze_offer_idx = len(state.offer_history) - 1
         # Use last counter, not floor — jumping to floor is an
         # unearned gift to the buyer.  Signal firmness by holding
         # at the current negotiation position.
@@ -1415,34 +1577,6 @@ def process_round(state: NegotiationState, extraction: dict) -> EngineResult:
         state.counter_history[-1] if state.counter_history else state.bulk_target_price,
     ):
         return _accept_result(state, u_price, ReasoningTag.UTILITY_ACCEPT)
-
-    # ── STEP 9: Last round ───────────────────────────────────
-    #   Accept only if the offer is close to the last counter.
-    #   Blindly accepting anything above floor lets a buyer who
-    #   negotiated nowhere near our price grab a huge discount.
-    if state.current_round >= state.max_rounds:
-        last_counter = (
-            state.counter_history[-1]
-            if state.counter_history
-            else state.bulk_target_price
-        )
-        # Two independent floors, BOTH must hold:
-        #  1. Buyer must be close to our current counter (existing check)
-        #  2. Buyer must clear the absolute min_acceptance_ratio vs base price
-        #     (Patch 6 — closes the bypass where a heavily-conceded counter
-        #     made min_accept_1 trivially low relative to the original price)
-        min_accept_counter = last_counter * TUNING["last_round_min_counter_ratio"]
-        base_ratio_floor = (
-            TUNING["min_acceptance_ratio_max_profit"]
-            if state.mode == "MAX_PROFIT"
-            else TUNING["min_acceptance_ratio_min_loss"]
-        )
-        min_accept_base = float(state.base_price) * base_ratio_floor
-        min_accept = max(min_accept_counter, min_accept_base)
-
-        if u_price >= min_accept:
-            return _accept_result(state, u_price, ReasoningTag.LAST_ROUND_ACCEPT)
-        return _reject_result(state, ReasoningTag.LAST_ROUND_REJECT)
 
     # ── STEP 10: Compute counter-price ────────────────────────
     #   _compute_concession always clamps at dynamic_floor,

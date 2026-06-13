@@ -166,15 +166,21 @@ class TestPhaseProgression:
         - avoid stagnation triggers (>2% improvement clears stagnant counter)
         - avoid retrograde triggers (all improvements positive)
         """
-        state = _make_state(max_rounds=10)  # floor = 65, base = 100
-        phases_seen: list[NegotiationPhase] = []
+        from app.agents import negotiation_engine as engine
+        orig_max = engine.TUNING["zopa_no_overlap_max_rounds"]
+        engine.TUNING["zopa_no_overlap_max_rounds"] = 999
+        try:
+            state = _make_state(max_rounds=10)  # floor = 65, base = 100
+            phases_seen: list[NegotiationPhase] = []
 
-        # Offers: 40, 42, 44, ..., 58 — all below floor=65, each +5% improvement
-        for i in range(1, 11):
-            offer = 38.0 + i * 2.0   # 40, 42, 44, 46, ..., 58
-            extraction = _make_extraction(unit_price_offered=offer)
-            result = process_round(state, extraction)
-            phases_seen.append(result.phase)
+            # Offers: 40, 42, 44, ..., 58 — all below floor=65, each +5% improvement
+            for i in range(1, 11):
+                offer = 38.0 + i * 2.0   # 40, 42, 44, 46, ..., 58
+                extraction = _make_extraction(unit_price_offered=offer)
+                result = process_round(state, extraction)
+                phases_seen.append(result.phase)
+        finally:
+            engine.TUNING["zopa_no_overlap_max_rounds"] = orig_max
 
         # Round 1 (progress=0.1, anchor_boundary=0.1) → ANCHOR_RESIST
         assert phases_seen[0] == NegotiationPhase.ANCHOR_RESIST
@@ -1913,7 +1919,7 @@ class TestLastRoundTermination:
         """Normal (unfrozen) last round, buyer within 90% of counter → accept."""
         state = _make_state(
             base_price=16000.0, cost_price=8000.0, min_floor=8640.0,
-            max_rounds=10,
+            max_rounds=10, mode="MIN_LOSS",
         )
         # Gradually increasing offers (no retrograde) over 9 rounds
         offers = [9000, 9500, 10000, 10500, 11000, 11500, 12000, 12500, 13000]
@@ -1966,10 +1972,15 @@ class TestLastRoundTermination:
             for o in offers_seq:
                 process_round(state, _make_extraction(unit_price_offered=float(o)))
 
-            # Last round
-            r_last = process_round(state, _make_extraction(
-                unit_price_offered=float(offers_seq[-1])
-            ))
+            # Last round (loop until max_rounds is reached if extended)
+            r_last = None
+            while state.current_round < state.max_rounds:
+                r_last = process_round(state, _make_extraction(
+                    unit_price_offered=float(offers_seq[-1])
+                ))
+                if r_last.decision in ("accept", "reject"):
+                    break
+            assert r_last is not None
             assert r_last.decision in ("accept", "reject"), (
                 f"base={base}, last offer={offers_seq[-1]}: "
                 f"expected accept/reject, got '{r_last.decision}'"

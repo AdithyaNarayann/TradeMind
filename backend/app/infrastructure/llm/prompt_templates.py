@@ -580,7 +580,7 @@ TASK:
    - Examples that are PER-UNIT prices → set extracted_unit_price:
      • "2 units at $15000 each" → per-unit = $15000
      • "$7500 per unit, quantity 2" → per-unit = $7500
-   - DEFAULT RULE: if the buyer says "{qty} units" + a price WITHOUT "each" or
+   - DEFAULT RULE: if the buyer says "{{qty}} units" + a price WITHOUT "each" or
      "per unit", and the price is close to the current per-unit counter, treat
      it as a TOTAL price.  A buyer who has been negotiating DOWN would not
      suddenly agree to pay per-unit price × more units.

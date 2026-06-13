@@ -14,7 +14,14 @@ from app.main import create_app
 def client():
     """Create test client."""
     app = create_app()
-    return TestClient(app)
+    from app.api.v1.auth_routes import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": 1,
+        "email": "test@example.com",
+        "full_name": "Test User",
+    }
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
