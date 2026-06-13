@@ -1087,6 +1087,53 @@ class NegotiationEngine:
         )
 
         # Update session inventory
+        state = session.pricing_state
+        if not hasattr(state, "quantity_contexts"):
+            state.quantity_contexts = {}
+
+        eng = state.engine_state
+        old_qty = session.inventory.requested_quantity
+
+        if new_qty != old_qty and eng is not None:
+            # 1. Save current context for old_qty
+            import copy
+            state.quantity_contexts[old_qty] = {
+                "current_round": state.current_round,
+                "current_offer": state.current_offer,
+                "buyer_last_offer": state.buyer_last_offer,
+                "concession_used": state.concession_used,
+                "offers_history": list(state.offers_history),
+                "buyer_history": list(state.buyer_history),
+                "engine_state": copy.deepcopy(eng),
+            }
+
+            # 2. Check if we have a saved context for new_qty
+            if new_qty in state.quantity_contexts:
+                # Restore saved context
+                ctx = state.quantity_contexts[new_qty]
+                state.current_round = ctx["current_round"]
+                state.current_offer = ctx["current_offer"]
+                state.buyer_last_offer = ctx["buyer_last_offer"]
+                state.concession_used = ctx["concession_used"]
+                state.offers_history = list(ctx["offers_history"])
+                state.buyer_history = list(ctx["buyer_history"])
+                state.engine_state = copy.deepcopy(ctx["engine_state"])
+                
+                # Update requested quantity
+                session.inventory.requested_quantity = new_qty
+                if state.engine_state:
+                    state.engine_state.quantity = new_qty
+                    session.strategy.max_rounds = state.engine_state.max_rounds
+                
+                logger.info(
+                    "quantity_context_restored",
+                    new_qty=new_qty,
+                    old_qty=old_qty,
+                    restored_round=state.current_round,
+                    restored_offer=state.current_offer,
+                )
+                return
+
         session.inventory.requested_quantity = new_qty
 
         # Update PRANE-X engine state

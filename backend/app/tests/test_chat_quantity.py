@@ -183,3 +183,27 @@ def test_bare_number_total_price_corrected_for_qty_gt_1():
     assert response.extracted_price == Decimal("30.0")
     assert session.inventory.requested_quantity == 5
     assert session.pricing_state.current_round == 1
+
+
+def test_quantity_change_restores_previous_negotiation_context():
+    engine = _engine_without_llm()
+    created = engine.create_session(_session_request(quantity=1))
+
+    # Round 1: Buyer offers 40
+    r1 = engine.process_chat(created.session_id, ChatMessage(message="40"))
+    session = engine.session_manager.get_session(created.session_id)
+    first_qty1_counter = session.pricing_state.current_offer
+    
+    # Change to quantity = 3
+    engine.process_chat(created.session_id, ChatMessage(message="I want 3 units"))
+    assert session.inventory.requested_quantity == 3
+    
+    # Round 2: Buyer offers 30 per unit for 3 units
+    r3 = engine.process_chat(created.session_id, ChatMessage(message="30"))
+    qty3_counter = session.pricing_state.current_offer
+    
+    # Change back to quantity = 1
+    engine.process_chat(created.session_id, ChatMessage(message="I want 1 unit"))
+    assert session.inventory.requested_quantity == 1
+    # It should restore the context from quantity = 1
+    assert session.pricing_state.current_offer == first_qty1_counter

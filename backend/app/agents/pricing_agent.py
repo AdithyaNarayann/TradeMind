@@ -150,11 +150,11 @@ RULES:
    Do NOT say "this is my final offer" — that implies a strategic hold, not a hard limit.
 6. If buyer_moving_toward_counter=true AND firmness_level >= 2: acknowledge their movement.
    Give a directional hint: "You're getting close — a little more and we have a deal."
-7. Always include the exact_counter_str value verbatim somewhere in the response.
+7. Unless the decision is "reject", always include the exact_counter_str value verbatim somewhere in the response.
 8. 1–3 sentences maximum. No lists. No bullet points.
 
 PRICE ACCURACY RULE (non-negotiable):
-Your response must include the exact price string from exact_counter_str verbatim.
+Unless the decision is "reject", your response must include the exact price string from exact_counter_str verbatim.
 Copy it character for character. Do not round, abbreviate, or restate it.
 Placement is your choice — work it naturally into the sentence.
 """
@@ -163,7 +163,7 @@ _VERBALIZER_USER_TEMPLATE = """Generate a short negotiation response.
 
 DECISION CONTEXT:
 - Decision: {decision}
-- Our counter price: ${counter_unit_price} per unit (total: ${counter_total_price} for {quantity} unit(s))
+{price_line}
 - Phase: {phase}
 - Reasoning: {reasoning_tag}
 - Round: {round_number} of {max_rounds} ({rounds_remaining} remaining)
@@ -199,13 +199,7 @@ PREVIOUS RESPONSES (do NOT reuse any of these phrases or sentence structures):
 {previous_responses}
 
 RULES:
-- If decision is "accept": confirm the deal at ${counter_unit_price} per unit.
-- If decision is "counter": present ${counter_unit_price} as our offer.
-- If decision is "final_offer": make clear this is our final offer at ${counter_unit_price}.
-- If decision is "reject": end the negotiation respectfully.
-- You MUST mention the price ${counter_unit_price} per unit in your response.
-- When quantity is more than 1, ALWAYS also state the total of ${counter_total_price} for {quantity} units.
-- Do NOT mention any price other than ${counter_unit_price} (unit) or ${counter_total_price} (total).
+{decision_rules}
 {conditional_note}
 Generate the response:"""
 
@@ -612,7 +606,33 @@ class PricingStrategyAgent:
                 # quantity references like "{5 units}"), Python's str.format() would
                 # try to interpret them as format fields and raise KeyError, causing
                 # every subsequent round to silently fall back to templates.
+                is_reject = result.decision == "reject"
+                if is_reject:
+                    price_line = "- No counter offer is made (negotiation terminated)"
+                    decision_rules = (
+                        "- Since decision is \"reject\", end the negotiation respectfully.\n"
+                        "- Do NOT mention any prices, counter-offers, minimum acceptable price, cost, floors, or financial limits in your response. Just say that we cannot meet their requirements and wish them the best."
+                    )
+                else:
+                    price_line = f"- Our counter price: ${result.counter_unit_price:.2f} per unit (total: ${result.counter_unit_price * state.quantity:.2f} for {state.quantity} unit(s))"
+                    decision_rules = (
+                        f"- If decision is \"accept\": confirm the deal at ${result.counter_unit_price:.2f} per unit.\n"
+                        f"- If decision is \"counter\": present ${result.counter_unit_price:.2f} as our offer.\n"
+                        f"- If decision is \"final_offer\": make clear this is our final offer at ${result.counter_unit_price:.2f}.\n"
+                        f"- You MUST mention the price ${result.counter_unit_price:.2f} per unit in your response.\n"
+                        f"- When quantity is more than 1, ALWAYS also state the total of ${result.counter_unit_price * state.quantity:.2f} for {state.quantity} units.\n"
+                        f"- Do NOT mention any price other than ${result.counter_unit_price:.2f} (unit) or ${result.counter_unit_price * state.quantity:.2f} (total)."
+                    )
+
                 safe_ctx = dict(verb_context)
+                safe_ctx["price_line"] = price_line
+                safe_ctx["decision_rules"] = decision_rules
+                if is_reject:
+                    safe_ctx["counter_unit_price"] = ""
+                    safe_ctx["counter_total_price"] = ""
+                    safe_ctx["exact_counter_str"] = ""
+                    safe_ctx["exact_total_str"] = ""
+
                 safe_ctx["previous_responses"] = (
                     safe_ctx.get("previous_responses", "(none yet)")
                     .replace("{", "(")
