@@ -10,12 +10,16 @@ It NEVER makes pricing or numeric decisions.
 import httpx
 import structlog
 import asyncio
+import concurrent.futures
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 from ...core.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# Shared thread pool for sync→async bridging (reused across all LLM calls)
+_sync_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm_sync")
 
 
 
@@ -172,13 +176,11 @@ class OpenRouterClient:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # We're inside an async context - create a new task
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = pool.submit(
-                        asyncio.run,
-                        self.generate(system_prompt, user_prompt, temperature)
-                    ).result(timeout=self.timeout + 5)
+                # We're inside an async context — use the shared thread pool
+                result = _sync_pool.submit(
+                    asyncio.run,
+                    self.generate(system_prompt, user_prompt, temperature)
+                ).result(timeout=self.timeout + 5)
                 return result
             else:
                 return loop.run_until_complete(
@@ -205,3 +207,8 @@ def get_llm_client() -> OpenRouterClient:
     if _client is None:
         _client = OpenRouterClient()
     return _client
+
+
+def shutdown_llm_pool():
+    """Shutdown the shared thread pool on app exit."""
+    _sync_pool.shutdown(wait=False)

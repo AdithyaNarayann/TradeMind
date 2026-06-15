@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, Clock,
   DollarSign, RefreshCw, Download, Eye, X, MessageSquare, ArrowUpRight,
@@ -18,6 +19,7 @@ const STATUS_CONFIG = {
 };
 
 export default function NegotiationDashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,6 +47,10 @@ export default function NegotiationDashboard() {
       setLastRefresh(new Date());
       setError(null);
     } catch (err) {
+      if (err.message === 'AUTH_REQUIRED') {
+        navigate('/login', { replace: true });
+        return;
+      }
       setError(err.message);
     } finally {
       setLoading(false);

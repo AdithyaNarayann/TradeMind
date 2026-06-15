@@ -307,17 +307,25 @@ class NegotiationEngine:
                         # Pure conversation — return LLM reply
                         return ChatResponse(
                             session_id=session_id,
-                            message=reply or "Could you please make a specific price offer?",
+                            message=reply or f"I'd love to find a great deal for you on {session.product.product_name}! What price were you thinking?",
                             has_price_offer=False,
                         )
             except Exception as e:
                 logger.error("chat_understanding_error", error=str(e))
         
-        # Fallback: try simple regex extraction
+        # Fallback: try regex extraction (only explicit price patterns, not random numbers)
         import re
-        match = re.search(r'\$?\s?(\d+(?:\.\d{1,2})?)', chat_message.message)
-        if match:
-            price = float(match.group(1))
+        # Match: $50, $50.00, "50 dollars", "I offer 50", etc.
+        price_match = re.search(
+            r'(?:\$\s*)(\d+(?:\.\d{1,2})?)'
+            r'|(?:offer|pay|bid|price|budget|give|do)\s+(?:\$\s*)?(\d+(?:\.\d{1,2})?)'
+            r'|(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|per\s+unit)',
+            chat_message.message,
+            re.IGNORECASE,
+        )
+        if price_match:
+            price_str = price_match.group(1) or price_match.group(2) or price_match.group(3)
+            price = float(price_str) if price_str else 0
             if price > 0:
                 buyer_offer = BuyerOffer(
                     offered_price=Decimal(str(price)),
@@ -336,10 +344,19 @@ class NegotiationEngine:
                     rounds_remaining=turn_response.rounds_remaining,
                 )
         
-        # No price found and LLM failed — generic reply
+        # No price found and LLM failed — varied engaging fallback
+        import random
+        fallback_messages = [
+            f"I'm really excited to talk to you about {session.product.product_name}! It's one of our best sellers. At ${current_offer} per unit, you're getting incredible value — what price were you thinking?",
+            f"Great question! {session.product.product_name} has been flying off the shelves lately. I'd love to work out a deal with you — go ahead and throw out a number!",
+            f"You know what, {session.product.product_name} is genuinely one of the best products we carry. The quality really speaks for itself at ${current_offer}. What's your budget looking like?",
+            f"I hear you! Let me tell you, customers who've bought {session.product.product_name} keep coming back for more. The value at ${current_offer} is hard to beat — but I'm open to discussing. What did you have in mind?",
+            f"Absolutely, let's find a deal that works for both of us! {session.product.product_name} at ${current_offer} is already competitive, but go ahead — give me your best offer and let's see what we can do.",
+            f"That's what I love about negotiating {session.product.product_name} — everyone wants it because the quality is outstanding. We're at ${current_offer} right now. What price would make you pull the trigger?",
+        ]
         return ChatResponse(
             session_id=session_id,
-            message=f"Thank you for your interest in {session.product.product_name}! Our current offer is ${current_offer} per unit. Feel free to make a price offer and we'll see what we can work out.",
+            message=random.choice(fallback_messages),
             has_price_offer=False,
         )
     

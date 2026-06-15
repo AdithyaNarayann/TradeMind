@@ -10,7 +10,7 @@ These prompts ensure the LLM:
 """
 
 
-SYSTEM_PROMPT = """You are a professional negotiation representative acting on behalf of a seller. You communicate pricing decisions made by a deterministic pricing engine.
+SYSTEM_PROMPT = """You are a skilled, charismatic sales negotiator on a live call with a buyer. You communicate pricing decisions naturally — like a real person, not a script.
 
 CRITICAL RULES (NEVER VIOLATE):
 1. You MUST use ONLY the exact prices provided in the context. NEVER invent, round, or modify any numbers.
@@ -26,9 +26,11 @@ CRITICAL RULES (NEVER VIOLATE):
 11. NEVER say phrases like "my minimum is", "the lowest I can go is", "I need at least", or any wording that reveals a specific floor/reservation price. If the buyer's offer is too low, say it doesn't work without stating the exact minimum.
 12. NEVER mention that you have a minimum limit, price floor, reservation price, cost price, or that you are forbidden from going lower. Instead, simply state that the price does not work or is too low for the business model.
 
-Your personality varies based on the negotiation mode:
-- MAX_PROFIT: Confident, firm, value-focused. Emphasize product quality and fair pricing.
-- MIN_LOSS: Collaborative, solution-oriented, motivated to close. Emphasize mutual benefit."""
+Your style:
+- MAX_PROFIT: Confident, value-focused. You believe in this product and it shows. Sell the quality.
+- MIN_LOSS: Collaborative, deal-closer energy. You want to make this work for both sides.
+
+VARIETY IS KEY: Never repeat the same phrasing. Each response should feel fresh and unique."""
 
 
 def build_initial_offer_prompt(
@@ -38,22 +40,16 @@ def build_initial_offer_prompt(
     mode: str,
 ) -> str:
     """Build prompt for generating initial offer message."""
-    return f"""Generate a short opening offer message for a negotiation.
+    return f"""You’re starting a negotiation call for {product_name}. Make your opening pitch.
 
-CONTEXT:
-- Product: {product_name}
-- Quantity: {quantity} unit(s)
-- Our offer price: ${offer_price} per unit
+DETAILS:
+- Product: {product_name} ({quantity} units)
+- Your opening price: ${offer_price} per unit
 - Mode: {mode}
 
-RULES:
-- You MUST mention the exact price ${offer_price} per unit
-- You MUST mention the quantity {quantity}
-- You MUST mention the product name
-- Keep it under 2-3 sentences
-- Be professional and welcoming
+Make it feel like a natural conversation starter. Mention the product, the price ${offer_price}, and the quantity. Be welcoming and confident — you’re excited to work with this buyer. 1-2 sentences, casual and professional.
 
-Generate the opening offer message:"""
+Generate your opening:"""
 
 
 def build_accept_prompt(
@@ -87,7 +83,7 @@ RULES:
 - Keep it 1-2 sentences
 - Be warm but professional
 
-Generate the acceptance message:"""
+Generate your response:"""
 
 
 def build_counter_prompt(
@@ -107,15 +103,14 @@ def build_counter_prompt(
     
     urgency = ""
     if phase == "late":
-        urgency = "This is getting close to our final rounds. Convey appropriate urgency."
+        urgency = "This is getting close to our final rounds. Convey urgency — make them feel they might miss out."
     
     violation_note = ""
     if is_constraint_violation:
-        violation_note = f"The buyer's offer of ${buyer_offered} was below our acceptable range. Be clear that this price doesn't work, without revealing our exact minimum."
+        violation_note = f"The buyer's offer of ${buyer_offered} was way too low. Be clear that this price doesn't work, but do NOT reveal our minimum — instead, explain WHY the product is worth more. Sell the value."
     
     buyer_context = ""
     if buyer_message:
-        # SECURITY: Wrap buyer input in delimiters to mitigate prompt injection
         sanitized = buyer_message.replace("<", "&lt;").replace(">", "&gt;")
         buyer_context = f'<buyer_message>{sanitized}</buyer_message>'
 
@@ -157,7 +152,7 @@ RULES:
 - Keep it 2-3 sentences
 - No apologies for our pricing
 
-Generate the counter-offer message:"""
+Generate your response:"""
 
 
 def build_reject_prompt(
@@ -431,7 +426,7 @@ Respond with ONLY this JSON:
 # CHAT UNDERSTANDING PROMPTS (Parse free-text buyer messages)
 # =============================================================================
 
-CHAT_UNDERSTANDING_SYSTEM_PROMPT = """You are an expert negotiation representative analyzing buyer messages during a price negotiation.
+CHAT_UNDERSTANDING_SYSTEM_PROMPT = """You are a charismatic, witty sales negotiator having a real-time conversation with a buyer. You’re passionate about the product and genuinely enjoy negotiating.
 
 Your job:
 1. Understand the buyer's intent from their free-text message
@@ -521,7 +516,7 @@ RECENT CONVERSATION (use this to understand the buyer's pricing convention):
 
     return f"""Analyze this buyer's message in an ongoing negotiation and determine their intent.
 
-NEGOTIATION CONTEXT:
+SITUATION:
 - Product: {product_name}
 - Our initial/base price: ${base_price} per unit
 - Our current offer: ${our_last_offer} per unit
@@ -537,7 +532,7 @@ If the buyer mentions a past price (e.g., "earlier you said $299", "you offered 
 - A new bid must be forward-looking: "I offer $X", "how about $X", "can you do $X".
 - If the same message contains BOTH a reference AND a bid, ONLY extract the bid.
 
-BUYER'S MESSAGE:
+BUYER SAYS:
 "{buyer_message}"
 
 TASK:

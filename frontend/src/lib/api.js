@@ -287,9 +287,11 @@ export async function getAnalyticsSchema() {
 
 export async function getDashboardSummary() {
   const token = getAuthToken();
+  if (!token) throw new Error('AUTH_REQUIRED');
   const response = await fetch(`${AUTH_API_URL}/api/v1/chat-sessions/dashboard/summary`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (response.status === 401) throw new Error('AUTH_REQUIRED');
   if (!response.ok) throw new Error('Failed to fetch dashboard');
   return response.json();
 }

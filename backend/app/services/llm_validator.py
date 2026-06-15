@@ -40,10 +40,10 @@ class LLMValidator:
     """
     
     # Maximum allowed response length (characters)
-    MAX_RESPONSE_LENGTH = 500
+    MAX_RESPONSE_LENGTH = 800
     
     # Minimum response length
-    MIN_RESPONSE_LENGTH = 10
+    MIN_RESPONSE_LENGTH = 5
     
     # Forbidden phrases (LLM should not promise things it can't)
     FORBIDDEN_PHRASES = [
@@ -183,7 +183,13 @@ class LLMValidator:
         expected_price: Optional[Decimal],
         buyer_offered: Optional[Decimal],
     ) -> List[str]:
-        """Verify all prices in the text are legitimate."""
+        """Verify prices in the text are legitimate.
+        
+        We only flag a price as 'invented' if it looks like it could be
+        mistaken for a deal price (close to the negotiation range).
+        Numbers clearly outside the negotiation range (e.g. "100% satisfaction",
+        quantities, percentages) are allowed through.
+        """
         violations = []
         
         # Build set of allowed prices
@@ -201,6 +207,13 @@ class LLMValidator:
         if decision.accepted_price is not None:
             allowed_prices.add(decision.accepted_price)
         
+        if not allowed_prices:
+            return violations  # Nothing to check against
+        
+        # Determine the negotiation price range for context
+        min_allowed = min(allowed_prices)
+        max_allowed = max(allowed_prices)
+        
         # Check each found price
         for price in found_prices:
             is_allowed = False
@@ -211,9 +224,17 @@ class LLMValidator:
                     break
             
             if not is_allowed:
-                violations.append(
-                    f"invented_price: ${price} not in allowed {[str(p) for p in allowed_prices]}"
-                )
+                # Only flag as invented if the price is in the plausible negotiation range
+                # (within 2x of the expected range). Numbers way outside (like 100, 1000 
+                # when negotiating at $85) are likely contextual, not deal prices.
+                range_low = min_allowed * Decimal("0.3")
+                range_high = max_allowed * Decimal("2.0")
+                if range_low <= price <= range_high:
+                    violations.append(
+                        f"invented_price: ${price} not in allowed {[str(p) for p in allowed_prices]}"
+                    )
+                else:
+                    logger.debug("allowing_contextual_number", price=str(price))
         
         return violations
     

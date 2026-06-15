@@ -23,13 +23,13 @@ class Settings(BaseSettings):
     rate_limit_per_hour: int = 1000
     
     # Session Management
-    session_ttl_seconds: int = 3600  # 1 hour
+    session_ttl_seconds: int = 7200  # 2 hours (longer than JWT to avoid mid-negotiation drops)
     max_sessions_per_client: int = 10
     
     # Security
     jwt_secret: str = ""  # REQUIRED — set in .env
     encryption_key: str = ""  # For encrypting PII at rest
-    allowed_origins: str = "http://localhost:5173"  # Comma-separated origins
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"  # Comma-separated origins
     
     # MySQL Database
     mysql_host: str = "127.0.0.1"
@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 200
     llm_temperature: float = 0.7
     llm_timeout_seconds: float = 10.0
+    
+    # Sarvam AI (Voice)
+    sarvam_api_key: str = ""  # Set in .env — get from https://dashboard.sarvam.ai
+    sarvam_stt_ws_url: str = "wss://api.sarvam.ai/speech-to-text/ws"
+    sarvam_tts_ws_url: str = "wss://api.sarvam.ai/text-to-speech/ws"
+    sarvam_tts_rest_url: str = "https://api.sarvam.ai/text-to-speech"
+    sarvam_stt_model: str = "saaras:v3"
+    sarvam_tts_model: str = "bulbul:v3-beta"
+    sarvam_tts_speaker: str = "Shubh"
+    sarvam_language: str = "en-IN"
     
     class Config:
         env_file = ".env"

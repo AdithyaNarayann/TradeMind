@@ -28,6 +28,7 @@ from .api import (
 )
 from .analytics import analytics_router
 from .infrastructure.database.session import close_pool as close_mysql_pool
+from .call_feature import voice_router
 
 # Import competitive intelligence router from buisness anlytics module
 import sys, os
@@ -175,6 +176,7 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(analytics_router)
     app.include_router(competitive_router)
+    app.include_router(voice_router)
     
     # Root endpoint
     @app.get("/", tags=["Root"])

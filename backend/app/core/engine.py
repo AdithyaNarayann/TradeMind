@@ -15,7 +15,8 @@ Responsibilities:
 from decimal import Decimal
 from uuid import UUID
 from typing import Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
+import random
 
 from ..models import (
     ProductData,
@@ -247,10 +248,16 @@ class NegotiationEngine:
         # Step 1: Get session
         session = self.session_manager.get_session(session_id)
         if session is None:
-            raise ValueError(f"Session {session_id} not found or expired")
+            raise ValueError(
+                f"Session {session_id} not found or expired. "
+                "Please start a new negotiation session."
+            )
 
         if session.status != NegotiationStatus.ACTIVE:
-            raise ValueError(f"Session {session_id} is not active: {session.status}")
+            raise ValueError(
+                f"Session {session_id} is no longer active (status: {session.status.value}). "
+                "Please start a new negotiation session."
+            )
 
         # Step 2: Check termination conditions
         if self._should_terminate(session):
@@ -336,7 +343,7 @@ class NegotiationEngine:
             message=message,
             can_continue=can_continue,
             rounds_remaining=max(0, session.strategy.max_rounds - session.pricing_state.current_round),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
     def end_session(
@@ -378,6 +385,22 @@ class NegotiationEngine:
 
         if session.status != NegotiationStatus.ACTIVE:
             raise ValueError(f"Session {session_id} is not active: {session.status}")
+
+        # Step 1b: Validate message (prevent abuse / accidental huge payloads)
+        MAX_MSG_LENGTH = 2000
+        msg_text = chat_message.message or ""
+        if len(msg_text) > MAX_MSG_LENGTH:
+            return ChatResponse(
+                session_id=session_id,
+                message="Your message is a bit too long! Please keep it under 2000 characters.",
+                has_price_offer=False,
+            )
+        if not msg_text.strip():
+            return ChatResponse(
+                session_id=session_id,
+                message=f"I didn't catch that — could you tell me what price you had in mind for {session.product.product_name}?",
+                has_price_offer=False,
+            )
 
         # Step 2: Build negotiation history for context
         state = session.pricing_state
@@ -1388,22 +1411,28 @@ class NegotiationEngine:
 
         state = session.pricing_state
 
-        # Calculate concession
-        total_concession = session.initial_offer - (session.final_price or session.initial_offer)
-        concession_pct = (total_concession / session.initial_offer * 100
-                          if session.initial_offer > 0 else Decimal("0"))
+        # Calculate concession (guard against zero initial offer)
+        if session.initial_offer and session.initial_offer > 0:
+            total_concession = session.initial_offer - (session.final_price or session.initial_offer)
+            concession_pct = (total_concession / session.initial_offer * 100)
+        else:
+            total_concession = Decimal("0")
+            concession_pct = Decimal("0")
 
-        # Calculate profit
+        # Calculate profit (guard against zero final price)
         gross_profit = None
         profit_margin = None
-        if session.final_price:
+        if session.final_price and session.final_price > 0:
             gross_profit = session.final_price - session.product.cost_price
-            if session.final_price > 0:
-                profit_margin = (gross_profit / session.final_price * 100)
+            profit_margin = (gross_profit / session.final_price * 100)
 
-        # Calculate efficiency
+        # Calculate efficiency (guard against zero max rounds)
         rounds_used = state.current_round if state else 0
-        efficiency = Decimal(str(1 - (rounds_used / session.strategy.max_rounds)))
+        max_rounds = session.strategy.max_rounds
+        if max_rounds > 0:
+            efficiency = Decimal(str(1 - (rounds_used / max_rounds)))
+        else:
+            efficiency = Decimal("0")
 
         # Count constraint violations
         violations = len([v for v in state.buyer_history
@@ -1498,7 +1527,7 @@ class NegotiationEngine:
             message=message,
             can_continue=False,
             rounds_remaining=0,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
     def _update_state(
