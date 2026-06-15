@@ -218,8 +218,8 @@ class LLMValidator:
         for price in found_prices:
             is_allowed = False
             for allowed in allowed_prices:
-                # Allow rounding differences (within 50 cents for more flexibility)
-                if abs(price - allowed) <= Decimal("0.50"):
+                # Allow rounding differences (within $1 — Patch 3)
+                if abs(price - allowed) <= Decimal("1.00"):
                     is_allowed = True
                     break
             

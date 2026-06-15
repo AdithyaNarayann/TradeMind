@@ -1,5 +1,5 @@
-const API_BASE = 'http://127.0.0.1:8000/api/v1/negotiate';
-const CHAT_DB_BASE = 'http://127.0.0.1:8000/api/v1/chat-sessions';
+const API_BASE = 'http://127.0.0.1:8001/api/v1/negotiate';
+const CHAT_DB_BASE = 'http://127.0.0.1:8001/api/v1/chat-sessions';
 
 /** Default fetch timeout (15 seconds) */
 const FETCH_TIMEOUT_MS = 15000;
@@ -165,8 +165,7 @@ export async function createSession(config = null) {
         const response = await fetch(`${API_BASE}/sessions`, {
             method: 'POST',
             headers: _authHeaders(),
-            body: JSON.stringify(body),
-            signal: controller.signal,
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -221,8 +220,7 @@ export async function sendChat(sessionId, message) {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat`, {
             method: 'POST',
             headers: _authHeaders(),
-            body: JSON.stringify(body),
-            signal: controller.signal,
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -245,7 +243,7 @@ export async function getSession(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
             method: 'GET',
-            headers: _authHeaders(),
+            headers: _authHeaders()
         });
 
         if (!response.ok) {
@@ -264,7 +262,7 @@ export async function getAnalytics(sessionId) {
     try {
         const response = await fetch(`${API_BASE}/sessions/${sessionId}/analytics`, {
             method: 'GET',
-            headers: _authHeaders(),
+            headers: _authHeaders()
         });
 
         if (!response.ok) {
@@ -296,3 +294,4 @@ export function extractPrice(text) {
     const match = text.match(/\$?\s?(\d+(?:\.\d{1,2})?)/);
     return match ? parseFloat(match[1]) : null;
 }
+

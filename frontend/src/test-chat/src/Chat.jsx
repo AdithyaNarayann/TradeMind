@@ -20,6 +20,7 @@ export default function Chat() {
         maxRounds: 10,
         basePrice: 100,
         costPrice: 40,
+        quantity: 1,
     });
 
     // Session state
@@ -93,6 +94,7 @@ export default function Chat() {
             maxRounds: product.maxRounds || 10,
             basePrice: product.basePrice,
             costPrice: product.costPrice,
+            quantity: product.quantity || 1,
         });
         setShowProductDropdown(false);
         setProductSearch('');
@@ -122,8 +124,8 @@ export default function Chat() {
                 max_loss_percentage: maxLoss
             },
             inventory: {
-                available_quantity: 100,
-                requested_quantity: 10,
+                available_quantity: selectedProduct ? (selectedProduct.availableQuantity || 100) : 100,
+                requested_quantity: config.quantity || 1,
                 inventory_pressure: "medium",
                 sales_frequency: "medium"
             },
@@ -636,6 +638,28 @@ export default function Chat() {
                                         </div>
                                         <button
                                             onClick={() => setConfig({ ...config, maxRounds: Math.min(20, config.maxRounds + 1) })}
+                                            className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Quantity */}
+                                <div>
+                                    <label className="text-xs font-bold text-neo-navy/60 mb-2 block uppercase tracking-widest">Quantity</label>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => setConfig({ ...config, quantity: Math.max(1, config.quantity - 1) })}
+                                            className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
+                                        >
+                                            <Minus className="w-4 h-4" />
+                                        </button>
+                                        <div className="flex-1 px-4 py-2.5 border-3 border-neo-navy bg-neo-teal text-neo-cream text-center font-bold text-xl shadow-neo">
+                                            {config.quantity}
+                                        </div>
+                                        <button
+                                            onClick={() => setConfig({ ...config, quantity: Math.min(1000, config.quantity + 1) })}
                                             className="w-11 h-11 border-3 border-neo-navy bg-white flex items-center justify-center hover:bg-neo-navy/5"
                                         >
                                             <Plus className="w-4 h-4" />

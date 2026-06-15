@@ -123,9 +123,9 @@ class ConversationAgent:
     ]
     
     CONSTRAINT_VIOLATION_TEMPLATES = [
-        "That offer is quite a bit lower than where I can go, but I appreciate you putting it out there! Let's work toward something that makes sense for both of us.",
-        "I get it \u2014 everyone wants a great deal! But {product} really does deliver premium quality. What's the highest you can go?",
-        "I can't go that low, but I don't want to lose you either. Meet me somewhere in the middle?",
+        "That offer is below what I can consider. You'll need to come up significantly for us to move forward.",
+        "I appreciate the offer, but ${buyer_offer} doesn't meet our requirements. We'd need a much stronger offer.",
+        "That's outside our acceptable range. Please reconsider and come back with a more competitive number.",
     ]
     
     SESSION_EXPIRED_TEMPLATES = [
@@ -359,11 +359,16 @@ class ConversationAgent:
         context: ConversationContext,
     ) -> str:
         """Generate acceptance message."""
-        template = random.choice(self.ACCEPT_TEMPLATES)
-        return template.format(
+        template = self.ACCEPT_TEMPLATES[0]
+        msg = template.format(
             price=self._format_price(decision.accepted_price),
             quantity=context.quantity,
         )
+        # Append total when multi-unit
+        if context.quantity > 1 and decision.accepted_price is not None:
+            total = decision.accepted_price * context.quantity
+            msg = msg.rstrip('.') + f" (${self._format_price(total)} total)."
+        return msg
     
     def _generate_reject(
         self,
@@ -383,12 +388,17 @@ class ConversationAgent:
         templates = self.COUNTER_TEMPLATES[context.mode][phase]
         template = random.choice(templates)
         
-        return template.format(
+        msg = template.format(
             buyer_offer=self._format_price(context.buyer_offered),
             our_offer=self._format_price(decision.counter_offer_price),
             quantity=context.quantity,
             product=context.product_name,
         )
+        # Append total when multi-unit
+        if context.quantity > 1 and decision.counter_offer_price is not None:
+            total = decision.counter_offer_price * context.quantity
+            msg += f" That's ${self._format_price(total)} total for {context.quantity} units."
+        return msg
     
     def _generate_constraint_violation(
         self,

@@ -164,6 +164,8 @@ class PricingDecision(BaseModel):
     decision: OfferDecision
     counter_offer_price: Optional[Decimal] = None
     accepted_price: Optional[Decimal] = None
+    is_final_offer: bool = False
+    reasoning_tag: Optional[str] = None
     
     # Computed metrics
     margin_percentage: Decimal
